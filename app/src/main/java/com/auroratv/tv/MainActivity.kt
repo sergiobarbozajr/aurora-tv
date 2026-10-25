@@ -115,6 +115,16 @@ private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, RE
 
 private val LocalK = compositionLocalOf { 1.5f }
 
+/** Fonte do app: Inter (licença livre OFL). Texto comum em peso leve (semilight); títulos em seminegrito e negrito. */
+private val AuroraFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.inter_light, FontWeight.Light),
+    androidx.compose.ui.text.font.Font(R.font.inter_light, FontWeight.Normal),
+    androidx.compose.ui.text.font.Font(R.font.inter_medium, FontWeight.Medium),
+    androidx.compose.ui.text.font.Font(R.font.inter_semibold, FontWeight.SemiBold),
+    androidx.compose.ui.text.font.Font(R.font.inter_bold, FontWeight.Bold),
+    androidx.compose.ui.text.font.Font(R.font.inter_extrabold, FontWeight.ExtraBold)
+)
+
 @Composable
 private fun u(n: Number): Dp = (n.toFloat() * LocalK.current).dp
 
@@ -187,7 +197,10 @@ class MainActivity : ComponentActivity() {
 fun AuroraApp(catalog: Catalog, activity: MainActivity) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val k = maxWidth.value / 1280f
-        CompositionLocalProvider(LocalK provides k) { AppBody(catalog, activity) }
+        CompositionLocalProvider(
+            LocalK provides k,
+            androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = AuroraFont)
+        ) { AppBody(catalog, activity) }
     }
 }
 

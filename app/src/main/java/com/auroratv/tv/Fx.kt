@@ -283,7 +283,19 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
             },
             contentScale = ContentScale.Crop
         )
-        Box(Modifier.fillMaxSize().background(Color(0x38030509)))
+        // véu por tema: temas claros (mar, deserto) escurecem mais, para o texto claro manter contraste
+        val veil = when (theme) {
+            3 -> 0.42f
+            4 -> 0.58f
+            1 -> 0.26f
+            else -> 0.22f
+        }
+        Box(Modifier.fillMaxSize().background(Color(0xFF030509).copy(alpha = veil)))
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(0f to Color(0x33030509), 0.25f to Color.Transparent, 0.8f to Color.Transparent, 1f to Color(0x99030509))
+            )
+        )
         Canvas(Modifier.fillMaxSize()) {
             val now = tick.value
             val t = now / 1_000_000_000f
