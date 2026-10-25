@@ -1095,7 +1095,7 @@ private fun Sidebar(nav: Int, focused: Boolean) {
     )
     val shape = RoundedCornerShape(u(44))
     val k = LocalK.current
-    val fontPx = with(LocalDensity.current) { (26f * k).dp.toPx() }
+    val fontPx = with(LocalDensity.current) { (20f * k).dp.toPx() }
     Box(
         Modifier.padding(start = u(22), top = u(22), bottom = u(22)).width(u(258)).fillMaxHeight()
             .graphicsLayer { translationY = fy * density }

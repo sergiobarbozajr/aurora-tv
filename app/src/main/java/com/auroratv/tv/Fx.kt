@@ -442,7 +442,7 @@ class IntroData(
 )
 
 private fun buildIntroData(): IntroData {
-    val size = 150f
+    val size = 118f
     val cy = 360f
     val p = LogoPainter.paint(size)
     val wA = p.measureText("Aurora")
