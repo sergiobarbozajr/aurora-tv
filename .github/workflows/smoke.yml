@@ -44,11 +44,9 @@ jobs:
       - name: Resumo do erro
         if: always()
         run: |
-          if [ -f logcat.txt ]; then
-            L=$(grep -A25 "FATAL EXCEPTION" logcat.txt | head -40 | tr '\n' '|' | cut -c1-3500)
-            if [ -n "$L" ]; then echo "::error title=Queda ao abrir::$L"; else echo "::notice title=Abertura::sem FATAL EXCEPTION"; fi
-          fi
-          [ -f dead.txt ] && echo "::error title=Processo::app nao esta rodando" || true
+          ls -la logcat.txt || echo "sem logcat"
+          L=$(grep -iE "auroratv|AndroidRuntime|FATAL|ActivityTaskManager|ActivityManager.*(died|crash)|Exception|monkey" logcat.txt | grep -v "Choreographer" | head -40 | cut -c1-260 | tr '\n' '|' | cut -c1-3800)
+          echo "::error title=Log::$L"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
