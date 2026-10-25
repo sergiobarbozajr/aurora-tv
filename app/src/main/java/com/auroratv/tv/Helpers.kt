@@ -115,3 +115,6 @@ fun nowLabel(): String {
     val fmt = SimpleDateFormat("HH:mm | EEE, d MMM", Locale("pt", "BR"))
     return fmt.format(Date())
 }
+
+/** Cor com transparência sempre dentro de 0..1 (valores fora disso derrubam o app). */
+fun androidx.compose.ui.graphics.Color.al(a: Float): androidx.compose.ui.graphics.Color = copy(alpha = a.coerceIn(0f, 1f))

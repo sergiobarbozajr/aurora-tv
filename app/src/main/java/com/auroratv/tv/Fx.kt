@@ -130,14 +130,14 @@ private fun DrawScope.drawMeteor(m: Met) {
     val tail = Offset(tx, ty)
     drawLine(
         Brush.linearGradient(
-            listOf(Color(0xFF5AAAFF).copy(alpha = 0.55f * al), Color(0xFF286EFF).copy(alpha = 0.22f * al), Color(0x00146EFF)),
+            listOf(Color(0xFF5AAAFF).al(0.55f * al), Color(0xFF286EFF).al(0.22f * al), Color(0x00146EFF)),
             start = head, end = tail
         ),
         head, tail, strokeWidth = 16f * u, cap = StrokeCap.Round
     )
     drawLine(
         Brush.linearGradient(
-            listOf(Color.White.copy(alpha = al), Color(0xFF9ACDFF).copy(alpha = 0.7f * al), Color(0x005096FF)),
+            listOf(Color.White.al(al), Color(0xFF9ACDFF).al(0.7f * al), Color(0x005096FF)),
             start = head, end = tail
         ),
         head, Offset(hx - ux * len * 0.9f, hy - uy * len * 0.9f), strokeWidth = 3.6f * u, cap = StrokeCap.Round
@@ -146,13 +146,13 @@ private fun DrawScope.drawMeteor(m: Met) {
     for (j in 0 until 3) {
         val f = 0.15f + rnd.nextFloat() * 0.5f
         drawCircle(
-            Color(0xFF78BEFF).copy(alpha = 0.5f * al * rnd.nextFloat()),
+            Color(0xFF78BEFF).al(0.5f * al * rnd.nextFloat()),
             (1.2f + rnd.nextFloat() * 1.8f) * u,
             Offset(hx - ux * len * f + (rnd.nextFloat() - 0.5f) * 9f * u, hy - uy * len * f + (rnd.nextFloat() - 0.5f) * 9f * u)
         )
     }
     drawCircle(
-        Brush.radialGradient(listOf(Color.White.copy(alpha = al), Color(0xFF96CDFF).copy(alpha = 0.5f * al), Color(0x006EB4FF)), center = head, radius = 17f * u),
+        Brush.radialGradient(listOf(Color.White.al(al), Color(0xFF96CDFF).al(0.5f * al), Color(0x006EB4FF)), center = head, radius = 17f * u),
         17f * u, head
     )
 }
@@ -233,10 +233,10 @@ fun BackgroundFx(tick: State<Long>) {
                 val a = 0.45f + 0.55f * sin(t * d.ss[i] + d.sp[i])
                 val x = d.sx[i] * w
                 val y = d.sy[i] * h
-                drawCircle(Color.White.copy(alpha = a * 0.8f), d.sr[i] * u * 0.9f, Offset(x, y))
+                drawCircle(Color.White.al(a * 0.8f), d.sr[i] * u * 0.9f, Offset(x, y))
                 if (d.big[i]) {
                     val l = (7f + 5f * a) * u
-                    val c = Color(0xFFC8E1FF).copy(alpha = a * 0.55f)
+                    val c = Color(0xFFC8E1FF).al(a * 0.55f)
                     drawLine(c, Offset(x - l, y), Offset(x + l, y), strokeWidth = 0.8f * u)
                     drawLine(c, Offset(x, y - l), Offset(x, y + l), strokeWidth = 0.8f * u)
                 }
@@ -248,11 +248,11 @@ fun BackgroundFx(tick: State<Long>) {
                 val col = d.pc[i]
                 val hr = (12f + 12f * sn) * u
                 drawCircle(
-                    Brush.radialGradient(listOf(col.copy(alpha = 0.55f + 0.3f * sn), col.copy(alpha = 0f)), center = c, radius = hr),
+                    Brush.radialGradient(listOf(col.al(0.55f + 0.3f * sn), col.al(0f)), center = c, radius = hr),
                     hr, c
                 )
-                drawCircle(Color.White.copy(alpha = 0.65f + 0.35f * sn), (1.1f + 0.7f * sn) * u, c)
-                drawCircle(col.copy(alpha = (1f - p) * 0.38f), (3f + 34f * p) * u, c, style = Stroke(width = 1f * u))
+                drawCircle(Color.White.al(0.65f + 0.35f * sn), (1.1f + 0.7f * sn) * u, c)
+                drawCircle(col.al((1f - p) * 0.38f), (3f + 34f * p) * u, c, style = Stroke(width = 1f * u))
             }
             for (i in 0 until d.dn) {
                 d.dx[i] += d.dvx[i] * dt
@@ -262,7 +262,7 @@ fun BackgroundFx(tick: State<Long>) {
                     d.dy[i] = 1.02f
                 }
                 val a = d.da[i] * (0.55f + 0.45f * sin(t / 1.4f + d.dp[i])) * (1f - d.dx[i] / 0.34f * 0.7f)
-                drawCircle(Color(0xFFEBF4FF).copy(alpha = a.coerceIn(0f, 1f)), d.dr[i] * u, Offset(d.dx[i] * w, d.dy[i] * h))
+                drawCircle(Color(0xFFEBF4FF).al(a.coerceIn(0f, 1f)), d.dr[i] * u, Offset(d.dx[i] * w, d.dy[i] * h))
             }
         }
     }
@@ -411,7 +411,7 @@ fun FamilyScene(modifier: Modifier) {
         drawRect(Color(0xFF10151F), Offset(X(690f), Y(162f)), Size(60f * k, 6f * k))
         drawRoundRect(Color(0xFF10141F), Offset(X(410f), Y(186f)), Size(620f * k, 90f * k), CornerRadius(26f * k))
         val body = Color(0xFF06080E)
-        val rim = Color(0xFFBFE4FF).copy(alpha = 0.6f)
+        val rim = Color(0xFFBFE4FF).al(0.6f)
         fun person(cx: Float, headY: Float, r: Float, shoulderW: Float) {
             drawCircle(body, r * k, Offset(X(cx), Y(headY)))
             drawRoundRect(body, Offset(X(cx - shoulderW / 2f), Y(headY + r + 6f)), Size(shoulderW * k, 90f * k), CornerRadius(shoulderW * 0.4f * k))
@@ -606,7 +606,7 @@ fun IntroAnim(onDone: () -> Unit) {
                 if (ga > 0f) {
                     drawCircle(
                         Brush.radialGradient(
-                            listOf(Color(0xFFFFF0D2).copy(alpha = 0.9f * ga), Color(0xFFBEAAFF).copy(alpha = 0.5f * ga), Color(0xFF5A82FF).copy(alpha = 0.22f * ga), Color(0x003C5AFF)),
+                            listOf(Color(0xFFFFF0D2).al(0.9f * ga), Color(0xFFBEAAFF).al(0.5f * ga), Color(0xFF5A82FF).al(0.22f * ga), Color(0x003C5AFF)),
                             center = Offset(gx, gy), radius = 70f * u
                         ),
                         70f * u, Offset(gx, gy)
@@ -616,7 +616,7 @@ fun IntroAnim(onDone: () -> Unit) {
                         val rr = (5f + th * 6.5f) * u * 0.6f
                         val xx = gx + cos(th + arm * PI.toFloat()) * rr
                         val yy = gy + sin(th + arm * PI.toFloat()) * rr * 0.46f
-                        drawCircle(Color(0xFFD2E1FF).copy(alpha = (0.55f * ga * (1f - i / 90f)).coerceIn(0f, 1f)), 1.1f * u, Offset(xx, yy))
+                        drawCircle(Color(0xFFD2E1FF).al((0.55f * ga * (1f - i / 90f)).coerceIn(0f, 1f)), 1.1f * u, Offset(xx, yy))
                     }
                 }
             }
@@ -637,24 +637,24 @@ fun IntroAnim(onDone: () -> Unit) {
                 val head = Offset(hx * u, hy * u)
                 val tail = Offset(head.x - ux * len, head.y - uy * len)
                 drawLine(
-                    Brush.linearGradient(listOf(Color(0xFF6EB9FF).copy(alpha = 0.7f), Color(0xFF286EFF).copy(alpha = 0.28f), Color(0x00146EFF)), start = head, end = tail),
+                    Brush.linearGradient(listOf(Color(0xFF6EB9FF).al(0.7f), Color(0xFF286EFF).al(0.28f), Color(0x00146EFF)), start = head, end = tail),
                     head, tail, strokeWidth = 34f * k * u, cap = StrokeCap.Round
                 )
                 drawLine(
-                    Brush.linearGradient(listOf(Color.White, Color(0xFFA0D2FF).copy(alpha = 0.75f), Color(0x005096FF)), start = head, end = tail),
+                    Brush.linearGradient(listOf(Color.White, Color(0xFFA0D2FF).al(0.75f), Color(0x005096FF)), start = head, end = tail),
                     head, Offset(head.x - ux * len * 0.9f, head.y - uy * len * 0.9f), strokeWidth = 7f * k * u, cap = StrokeCap.Round
                 )
                 val rnd = java.util.Random((t * 60f).toInt().toLong())
                 for (j in 0 until 8) {
                     val f = 0.1f + rnd.nextFloat() * 0.7f
                     drawCircle(
-                        Color(0xFF82C3FF).copy(alpha = 0.7f * rnd.nextFloat()),
+                        Color(0xFF82C3FF).al(0.7f * rnd.nextFloat()),
                         (1.5f + rnd.nextFloat() * 2.5f) * u,
                         Offset(head.x - ux * len * f + (rnd.nextFloat() - 0.5f) * 26f * u, head.y - uy * len * f + (rnd.nextFloat() - 0.5f) * 26f * u)
                     )
                 }
                 drawCircle(
-                    Brush.radialGradient(listOf(Color.White, Color(0xFF96CDFF).copy(alpha = 0.6f), Color(0x006EB4FF)), center = head, radius = 34f * k * u),
+                    Brush.radialGradient(listOf(Color.White, Color(0xFF96CDFF).al(0.6f), Color(0x006EB4FF)), center = head, radius = 34f * k * u),
                     34f * k * u, head
                 )
             }
@@ -666,11 +666,11 @@ fun IntroAnim(onDone: () -> Unit) {
                 if (fl > 0f) {
                     val r = (60f + 260f * eo(kk / 0.45f)) * u
                     drawCircle(
-                        Brush.radialGradient(listOf(Color.White.copy(alpha = fl), Color(0xFF82C3FF).copy(alpha = 0.5f * fl), Color(0x005096FF)), center = c, radius = r),
+                        Brush.radialGradient(listOf(Color.White.al(fl), Color(0xFF82C3FF).al(0.5f * fl), Color(0x005096FF)), center = c, radius = r),
                         r, c
                     )
                 }
-                drawCircle(Color(0xFFAAD7FF).copy(alpha = max(0f, 0.8f - kk / 0.9f)), (20f + 520f * eo(kk / 1.0f)) * u, c, style = Stroke(width = 3f * u))
+                drawCircle(Color(0xFFAAD7FF).al(max(0f, 0.8f - kk / 0.9f)), (20f + 520f * eo(kk / 1.0f)) * u, c, style = Stroke(width = 3f * u))
             }
             // logo 3D
             if (a3 > 0f) {
