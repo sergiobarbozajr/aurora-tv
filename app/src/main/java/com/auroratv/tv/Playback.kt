@@ -91,7 +91,6 @@ class Playback(private val context: Context) {
             }
         })
         loadHealth()
-        main.postDelayed(watch, 1000)
     }
 
     // vigia o buffer: carregando por tempo demais = conexão lenta
@@ -112,6 +111,10 @@ class Playback(private val context: Context) {
             } else bufferingSec = 0
             main.postDelayed(this, 1000)
         }
+    }
+
+    init {
+        main.postDelayed(watch, 1000)
     }
 
     fun start(c: Card) {
