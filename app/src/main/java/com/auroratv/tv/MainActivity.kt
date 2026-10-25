@@ -1535,7 +1535,17 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
     val art = if (c.kind == "app" || c.img.isNotEmpty()) rememberCardImage(c) else null
+    val glossy = c.kind == "app"
+    // cartões de stream: efeito 3D (sombra, relevo e brilho); com foco crescem um pouco
     var m = Modifier.width(w).height(u(122))
+    if (glossy) m = m.graphicsLayer {
+        val sc = if (focused) 1.06f else 1f
+        scaleX = sc
+        scaleY = sc
+        shadowElevation = (if (focused) 22f else 10f) * gk
+        this.shape = shape
+        clip = false
+    }
     if (focused) {
         m = m.drawBehind {
             drawRoundRect(Color(0x33CFE9FF), Offset(-8f * gk, -6f * gk), Size(size.width + 16f * gk, size.height + 14f * gk), CornerRadius(20f * gk))
@@ -1544,24 +1554,33 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     m = if (c.kind == "empty") m.background(CCard, shape) else m.background(Brush.linearGradient(listOf(c.hueA, c.hueB)), shape)
     if (focused) m = m.border(BorderStroke(u(2), Color(0xFFCFE9FF)), shape)
     else if (c.kind == "empty") m = m.border(BorderStroke(u(1), Color(0xFF262C3B)), shape)
-    Box(m) {
+    else if (glossy) m = m.border(BorderStroke(u(1), Brush.verticalGradient(listOf(Color(0x99FFFFFF), Color(0x14FFFFFF)))), shape)
+    val cover = art != null && (c.kind == "vod" || c.kind == "series")
+    val banner = art != null && c.kind == "app" && !Img.isIcon(c)
+    Box(m.clip(shape)) {
         if (c.kind == "login") {
             Column(Modifier.align(Alignment.CenterStart).padding(horizontal = u(18))) {
                 Text("＋ " + c.name, color = CInk, fontSize = ts(20), fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 Spacer(Modifier.height(u(6)))
                 Text(c.label, color = CLight, fontSize = ts(13), maxLines = 2)
             }
-        } else if (c.kind == "app" && art != null && !Img.isIcon(c)) {
-            // banner oficial do app instalado (o mesmo da tela inicial do Google TV)
-            androidx.compose.foundation.Image(
-                art, c.name, Modifier.fillMaxSize().clip(shape),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+        } else if (banner && art != null) {
+            // banner oficial do app instalado, preenchendo o cartão
+            androidx.compose.foundation.Image(art, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        } else if (cover && art != null) {
+            // capa do filme/série enquadrada no cartão inteiro, nome sobre um degradê
+            androidx.compose.foundation.Image(art, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
+            Text(
+                c.name, color = CInk, fontSize = ts(15), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(u(12))
             )
         } else {
             if (art != null) {
+                // logo do canal (ou ícone do app) ocupando o espaço do cartão, sem cortar
                 androidx.compose.foundation.Image(
                     art, c.name,
-                    Modifier.align(Alignment.Center).padding(bottom = u(18)).width(u(if (c.kind == "app") 64 else 150)).height(u(64)),
+                    Modifier.align(Alignment.Center).padding(start = u(16), end = u(16), top = u(26), bottom = u(30)).fillMaxSize(),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit
                 )
             }
@@ -1578,10 +1597,24 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
                 } else Spacer(Modifier.height(u(1)))
                 Text(
                     c.name, color = if (c.kind == "empty") CDim else CInk,
-                    fontSize = ts(if (c.kind == "empty") 15 else if (art != null) 14 else 17), fontWeight = FontWeight.Bold,
+                    fontSize = ts(if (c.kind == "empty") 15 else if (art != null) 14 else if (glossy) 20 else 17),
+                    fontWeight = if (glossy) FontWeight.ExtraBold else FontWeight.Bold,
                     maxLines = if (art != null) 1 else 2, overflow = TextOverflow.Ellipsis
                 )
             }
+        }
+        if (glossy) {
+            // brilho de vidro: reflexo na metade de cima e um fio de luz na borda
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(0f to Color(0x59FFFFFF), 0.42f to Color(0x14FFFFFF), 0.43f to Color.Transparent, 1f to Color(0x33000000))
+                )
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.radialGradient(listOf(Color(0x33FFFFFF), Color.Transparent), center = Offset(60f * gk, 10f * gk), radius = 140f * gk)
+                )
+            )
         }
         if (fav) Text("★", color = CWarm, fontSize = ts(20), modifier = Modifier.align(Alignment.TopEnd).padding(top = u(8), end = u(10)))
         if (hl > 0 && c.kind == "stream") {
