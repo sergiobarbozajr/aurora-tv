@@ -93,6 +93,7 @@ val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080
 val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema estelar · baixo", "Tema estelar · médio", "Tema estelar · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
+val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto")
 val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
 val SCREEN_NAMES = listOf("Original", "Preencher", "Zoom", "16:9", "4:3", "Personalizado")
 
@@ -101,6 +102,7 @@ class SettingItem(val name: String, val edit: String?)
 val SETTING_ITEMS = listOf(
     SettingItem("Qualidade de vídeo", "quality"),
     SettingItem("Realce de imagem", "enh"),
+    SettingItem("Tema do app", "theme"),
     SettingItem("Clima e cidade", "city"),
     SettingItem("Som do aplicativo", "sound"),
     SettingItem("Meteoro ao apertar OK", "meteor"),
@@ -150,6 +152,9 @@ object Store {
     var screenMode: Int
         get() = int("screen_mode")
         set(v) = putInt("screen_mode", v)
+    var theme: Int
+        get() = int("theme")
+        set(v) = putInt("theme", v)
     var hideOffline: Int
         get() = int("hide_off")
         set(v) = putInt("hide_off", v)

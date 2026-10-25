@@ -374,6 +374,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var epFromPlayer by remember { mutableStateOf(false) }
     var epTick by remember { mutableStateOf(0) }
     var hideOff by remember { mutableStateOf(Store.hideOffline) }
+    var themeIdx by remember { mutableStateOf(Store.theme.coerceIn(0, THEME_NAMES.size - 1)) }
     var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
     var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
     var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -889,6 +890,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         "city" -> catalog.cities[cityIdx].name
         "sound" -> SOUND_NAMES[soundLvl]
         "hideoff" -> HIDEOFF_NAMES[hideOff]
+        "theme" -> THEME_NAMES[themeIdx]
         else -> METEOR_NAMES[meteorOpt]
     }
 
@@ -912,6 +914,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 soundLvl = (soundLvl + d + SOUND_NAMES.size) % SOUND_NAMES.size
                 Store.sound = soundLvl
                 Sound.apply(soundLvl)
+            }
+            "theme" -> {
+                themeIdx = (themeIdx + d + THEME_NAMES.size) % THEME_NAMES.size
+                Store.theme = themeIdx
             }
             "hideoff" -> {
                 hideOff = (hideOff + d + HIDEOFF_NAMES.size) % HIDEOFF_NAMES.size
@@ -1430,7 +1436,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
             else -> {
-                BackgroundFx(tick)
+                BackgroundFx(tick, themeIdx)
                 if (zone != Z.INTRO) {
                     if (zone == Z.IPTV) {
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF122034), Color(0xFF080A0F)))))
@@ -1818,6 +1824,12 @@ private fun settingBody(
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
         "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial de piano e violino, suave e minimalista, em ciclo. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Tema do app" -> tip + nl + nl + "Muda o fundo do app na hora:" + nl +
+            "• Galáxia: nebulosa com estrelas pulsando e poeira estelar" + nl +
+            "• Planetas: gigante gasoso com anéis e lua" + nl +
+            "• Órbitas: planetas girando em volta do sol" + nl +
+            "• Mar alienígena: oceano com duas luas e o luar brilhando na água" + nl +
+            "• Deserto: dunas, sol intenso e poeira no vento"
         "Canais fora do ar" -> tip + nl + nl + "O app marca cada canal: verde = online, amarelo = instável, vermelho = fora do ar. A marcação vem de quando você assiste e de um teste leve, a cada 30 minutos, só dos seus favoritos e recentes (para não sobrecarregar o servidor)." + nl + nl + "Ocultar esconde das abas os canais marcados como fora do ar."
         "Meteoro ao apertar OK" -> tip + nl + nl + "Mostra um meteoro azul passando no alto da tela quando você aperta OK para entrar numa seção. A animação de abertura não muda."
         "Rede e internet" -> {
