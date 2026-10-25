@@ -118,3 +118,19 @@ fun nowLabel(): String {
 
 /** Cor com transparência sempre dentro de 0..1 (valores fora disso derrubam o app). */
 fun androidx.compose.ui.graphics.Color.al(a: Float): androidx.compose.ui.graphics.Color = copy(alpha = a.coerceIn(0f, 1f))
+
+fun openNetworkSettings(context: android.content.Context) {
+    val tries = listOf(
+        android.provider.Settings.ACTION_WIRELESS_SETTINGS,
+        android.provider.Settings.ACTION_SETTINGS
+    )
+    for (a in tries) {
+        try {
+            val i = android.content.Intent(a)
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(i)
+            return
+        } catch (e: Exception) {
+        }
+    }
+}

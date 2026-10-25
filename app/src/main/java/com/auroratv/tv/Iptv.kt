@@ -41,16 +41,20 @@ object Iptv {
         }
     }
 
-    private fun http(urlStr: String, timeout: Int = 30000): String? {
+    var lastCode = 0
+
+    private fun http(urlStr: String, timeout: Int = 60000): String? {
         return try {
             val c = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = timeout
                 readTimeout = timeout
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "AuroraTV/0.7")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
             }
-            if (c.responseCode !in 200..299) null else c.inputStream.bufferedReader().use { it.readText() }
+            lastCode = c.responseCode
+            if (lastCode !in 200..299) null else c.inputStream.bufferedReader().use { it.readText() }
         } catch (e: Exception) {
+            lastCode = -1
             null
         }
     }
@@ -61,8 +65,23 @@ object Iptv {
         thread {
             val res = try {
                 val u = url.trim()
-                val isM3u = u.contains(".m3u", true) || u.contains("get.php", true) || u.contains("type=m3u", true)
-                if (isM3u) loadM3u(u) else loadXtream(u, user.trim(), pass.trim())
+                var us = user.trim()
+                var pw = pass.trim()
+                var base = u
+                val looksM3u = u.contains(".m3u", true) || u.contains("get.php", true) || u.contains("type=m3u", true)
+                if (u.contains("username=", true) && u.contains("password=", true)) {
+                    val uri = android.net.Uri.parse(u)
+                    us = uri.getQueryParameter("username") ?: us
+                    pw = uri.getQueryParameter("password") ?: pw
+                    val port = if (uri.port > 0) ":" + uri.port else ""
+                    base = (uri.scheme ?: "http") + "://" + (uri.host ?: "") + port
+                }
+                var r = if (us.isNotEmpty() && pw.isNotEmpty()) loadXtream(base, us, pw) else IptvResult(emptyMap(), 0, "login")
+                if (r.total == 0 && looksM3u) {
+                    val m = loadM3u(u)
+                    if (m.total > 0) r = m
+                }
+                r
             } catch (e: Throwable) {
                 IptvResult(emptyMap(), 0, "erro")
             }
@@ -91,6 +110,7 @@ object Iptv {
     private fun idxOf(s: String) = s.hashCode() and 0x7fffffff
 
     private fun loadXtream(rawUrl: String, user: String, pass: String): IptvResult {
+        var liveExt = "m3u8"
         var base = rawUrl.substringBefore("/player_api.php").trimEnd('/')
         if (!base.startsWith("http", true)) base = "http://$base"
         fun api(action: String?): String =
@@ -100,6 +120,12 @@ object Iptv {
         try {
             val ui = JSONObject(auth).optJSONObject("user_info")
             if (ui == null || ui.optInt("auth", 0) != 1) return IptvResult(emptyMap(), 0, "login")
+            val fm = ui.optJSONArray("allowed_output_formats")
+            if (fm != null) {
+                val l = ArrayList<String>()
+                for (i in 0 until fm.length()) l.add(fm.optString(i).lowercase())
+                if (l.isNotEmpty() && !l.contains("m3u8")) liveExt = if (l.contains("ts")) "ts" else l[0]
+            }
         } catch (e: Exception) {
             return IptvResult(emptyMap(), 0, "login")
         }
@@ -131,7 +157,7 @@ object Iptv {
                     val cat = liveCats[o.optString("category_id")] ?: ""
                     val id = o.optString("stream_id")
                     val sec = sectionFor("TV ao vivo", cat, name)
-                    acc.add(sec, cat, mkCard(name, cat.ifBlank { "Ao vivo" }, "stream", idxOf(name), "$base/live/${enc(user)}/${enc(pass)}/$id.m3u8"))
+                    acc.add(sec, cat, mkCard(name, cat.ifBlank { "Ao vivo" }, "stream", idxOf(name), "$base/live/${enc(user)}/${enc(pass)}/$id.$liveExt"))
                 }
             } catch (e: Exception) {
             }

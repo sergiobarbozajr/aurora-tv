@@ -104,6 +104,8 @@ val SETTING_ITEMS = listOf(
     SettingItem("Rede e internet", null),
     SettingItem("Guia de imagem (TCL A400M)", null),
     SettingItem("Teste de tela", null),
+    SettingItem("Mapear controle remoto", null),
+    SettingItem("Bloquear anúncios (DNS)", null),
     SettingItem("Abrir ajustes do Google TV", null),
     SettingItem("Conta IPTV", null),
     SettingItem("Atualização do app", null),
@@ -137,6 +139,10 @@ object Store {
     var meteor: Int
         get() = int("meteor")
         set(v) = putInt("meteor", v)
+
+    var keymap: String
+        get() = sp.getString("keymap", "") ?: ""
+        set(v) = sp.edit().putString("keymap", v).apply()
 
     var iptvUrl: String
         get() = sp.getString("iptv_url", "") ?: ""

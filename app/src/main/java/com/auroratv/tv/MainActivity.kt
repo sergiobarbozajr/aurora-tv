@@ -75,6 +75,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -107,7 +108,7 @@ private val CCardHi = Color(0xFF232A3B)
 private val CLive = Color(0xFFFF6B81)
 private val CPanel = Color(0xFF161A24)
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
         val catalog = parseCatalog(json)
         speech = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -204,9 +206,11 @@ private fun buildFree(catalog: Catalog, extra: List<Item>): FreeData {
 }
 
 private val KEYS = listOf(
+    listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
     listOf("A", "B", "C", "D", "E", "F", "G", "H", "I", "J"),
     listOf("K", "L", "M", "N", "O", "P", "Q", "R", "S", "T"),
-    listOf("U", "V", "W", "X", "Y", "Z", "ESPAÇO", "APAGAR", "MIC", "PRONTO")
+    listOf("U", "V", "W", "X", "Y", "Z", "ESPAÇO", "APAGAR", "MIC"),
+    listOf("CANCELAR", "PRONTO")
 )
 
 private val TEST_COLORS = listOf(
@@ -228,14 +232,34 @@ private class SearchCache {
     var rows: List<RowData> = emptyList()
 }
 
-private fun keyToAct(k: Key): String? = when (k) {
-    Key.DirectionUp -> "up"
-    Key.DirectionDown -> "down"
-    Key.DirectionLeft -> "left"
-    Key.DirectionRight -> "right"
-    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> "ok"
-    Key.F -> "fav"
-    else -> null
+private var customKeys: Map<Int, String> = emptyMap()
+
+private fun parseKeys(raw: String): Map<Int, String> {
+    val m = HashMap<Int, String>()
+    for (part in raw.split(",")) {
+        val kv = part.split(":")
+        if (kv.size == 2) {
+            val c = kv[0].toIntOrNull()
+            if (c != null) m[c] = kv[1]
+        }
+    }
+    return m
+}
+
+private fun keyToAct(e: androidx.compose.ui.input.key.KeyEvent): String? {
+    val code = e.nativeKeyEvent.keyCode
+    val custom = customKeys[code]
+    if (custom != null) return custom
+    return when (e.key) {
+        Key.DirectionUp -> "up"
+        Key.DirectionDown -> "down"
+        Key.DirectionLeft -> "left"
+        Key.DirectionRight -> "right"
+        Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> "ok"
+        Key.Back, Key.Escape, Key.ButtonB, Key.Backspace -> "back"
+        Key.F -> "fav"
+        else -> null
+    }
 }
 
 @Composable
@@ -262,6 +286,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var listening by remember { mutableStateOf(false) }
     var exitSel by remember { mutableStateOf(0) }
     var iptvFirst by remember { mutableStateOf(false) }
+    var keymapStep by remember { mutableStateOf(0) }
+    var keymapLast by remember { mutableStateOf("") }
 
     var toastMsg by remember { mutableStateOf<String?>(null) }
     var toastCtx by remember { mutableStateOf("") }
@@ -563,6 +589,30 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     fun openAntenna(c: Card) {
         var ok = false
+        var tuned = false
+        try {
+            val nn = Iptv.norm(c.name)
+            val cur = context.contentResolver.query(
+                TvContract.Channels.CONTENT_URI,
+                arrayOf(TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NAME), null, null, null
+            )
+            if (cur != null) {
+                cur.use {
+                    while (it.moveToNext()) {
+                        val dn = Iptv.norm(it.getString(1) ?: "")
+                        if (dn == nn || dn.startsWith(nn + " ") || dn.startsWith(nn + "-")) {
+                            val i = Intent(Intent.ACTION_VIEW, TvContract.buildChannelUri(it.getLong(0)))
+                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(i)
+                            tuned = true
+                            break
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+        }
+        if (tuned) return
         try {
             val tim = context.getSystemService(Context.TV_INPUT_SERVICE) as? TvInputManager
             val tuner = tim?.tvInputList?.firstOrNull { it.type == TvInputInfo.TYPE_TUNER }
@@ -583,7 +633,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             } catch (e: Exception) {
             }
         }
-        if (!ok) showToast("Para ver ${c.name}, aperte ENTRADAS no controle e escolha Antena.")
+        if (ok) showToast("Abri a antena. O Android não deixa o app trocar de canal sozinho: escolha ${c.name} no controle.")
+        else showToast("Para ver ${c.name}, aperte ENTRADAS no controle e escolha Antena.")
     }
 
     fun launchApp(c: Card) {
@@ -598,6 +649,20 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 } catch (e: Exception) {
                 }
             }
+        }
+        try {
+            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+            val token = Iptv.norm(c.name.substringBefore(" "))
+            val hit = pm.queryIntentActivities(q, 0).firstOrNull { Iptv.norm(it.loadLabel(pm).toString()).contains(token) }
+            if (hit != null) {
+                val i = pm.getLeanbackLaunchIntentForPackage(hit.activityInfo.packageName)
+                if (i != null) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(i)
+                    return
+                }
+            }
+        } catch (e: Exception) {
         }
         val uri = if (c.pkgs.isNotEmpty()) "market://details?id=${c.pkgs[0]}" else "market://search?q=${Uri.encode(c.name)}"
         try {
@@ -661,7 +726,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     when (r.error) {
                         "login" -> "Usuário ou senha não aceitos."
                         "vazio" -> "A lista veio vazia."
-                        else -> "Sem sinal do servidor. Confira o endereço."
+                        else -> "Sem sinal do servidor (código ${Iptv.lastCode}). Confira o endereço e a porta."
                     }
                 )
             }
@@ -755,6 +820,25 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
 
+    fun keymapPress(code: Int) {
+        keymapLast = android.view.KeyEvent.keyCodeToString(code)
+        if (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER) {
+            customKeys = emptyMap()
+            Store.keymap = ""
+            zone = Z.CONTENT
+            showToast("Mapeamento padrão restaurado.")
+            return
+        }
+        val action = if (keymapStep == 0) "back" else "home"
+        customKeys = customKeys + (code to action)
+        Store.keymap = customKeys.entries.joinToString(",") { it.key.toString() + ":" + it.value }
+        keymapStep++
+        if (keymapStep > 1) {
+            zone = Z.CONTENT
+            showToast("Controle mapeado e salvo.")
+        }
+    }
+
     fun finishIntro() {
         if (iptvSaved) {
             zone = Z.NAV
@@ -774,8 +858,15 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         when (k) {
             "ESPAÇO" -> query += " "
             "APAGAR" -> query = query.dropLast(1)
+            "CANCELAR" -> {
+                kbd = false
+                kr = 0
+                kc = 0
+            }
             "PRONTO" -> {
                 kbd = false
+                kr = 0
+                kc = 0
                 if (rows.isNotEmpty()) {
                     row = 1
                     col = 0
@@ -841,7 +932,24 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         testIdx = 0
                         zone = Z.TEST
                     }
-                    "Abrir ajustes do Google TV" -> openDisplaySettings(context)
+                    "Mapear controle remoto" ->
+            "Ensina ao app qual botão do seu controle é o VOLTAR e qual é o INÍCIO." + nl + nl +
+                (if (customKeys.isEmpty()) "Agora: padrão do Android." else "Agora: " + customKeys.entries.joinToString(" · ") { android.view.KeyEvent.keyCodeToString(it.key) + " = " + it.value }) +
+                nl + nl + "OK para começar."
+        "Bloquear anúncios (DNS)" ->
+            "O AuroraTV não tem anúncios. Para reduzir anúncios nos outros apps e sites, use um DNS que bloqueia anúncios:" + nl + nl +
+                "1. OK abre as configurações de rede." + nl +
+                "2. Procure “DNS privado” (Rede > Avançado) e escolha nome do provedor." + nl +
+                "3. Digite: dns.adguard-dns.com" + nl + nl +
+                "Se o seu Google TV não mostrar DNS privado, troque o DNS no roteador. Anúncios dentro de Netflix, Prime e similares não são bloqueados por isso."
+        "Abrir ajustes do Google TV" -> openDisplaySettings(context)
+                    "Mapear controle remoto" -> {
+                        customKeys = emptyMap()
+                        keymapStep = 0
+                        keymapLast = ""
+                        zone = Z.KEYMAP
+                    }
+                    "Bloquear anúncios (DNS)" -> openNetworkSettings(context)
                     "Conta IPTV" -> {
                         zone = Z.IPTV
                         loginField = 0
@@ -873,8 +981,14 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         if (kbd) {
             when (a) {
                 "back" -> kbd = false
-                "up" -> kr = max(0, kr - 1)
-                "down" -> kr = min(KEYS.size - 1, kr + 1)
+                "up" -> {
+                    kr = max(0, kr - 1)
+                    kc = min(kc, KEYS[kr].size - 1)
+                }
+                "down" -> {
+                    kr = min(KEYS.size - 1, kr + 1)
+                    kc = min(kc, KEYS[kr].size - 1)
+                }
                 "left" -> kc = max(0, kc - 1)
                 "right" -> kc = min(KEYS[kr].size - 1, kc + 1)
                 "ok" -> typeKey(KEYS[kr][kc])
@@ -935,6 +1049,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     if (player.isPlaying) player.pause() else player.play()
                 }
             }
+            Z.KEYMAP -> {}
             Z.TEST -> when (a) {
                 "back" -> zone = Z.CONTENT
                 "ok", "right" -> testIdx = (testIdx + 1) % TEST_COLORS.size
@@ -1013,13 +1128,17 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             .background(Color.Black)
             .focusRequester(focus)
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown) {
-                    val a = keyToAct(e.key)
-                    if (a != null) {
-                        act(a)
+                if (zone == Z.KEYMAP) {
+                    if (e.type == KeyEventType.KeyDown) keymapPress(e.nativeKeyEvent.keyCode)
+                    true
+                } else {
+                    val a = keyToAct(e)
+                    if (a == null) false
+                    else {
+                        if (e.type == KeyEventType.KeyDown) act(a)
                         true
-                    } else false
-                } else false
+                    }
+                }
             }
             .focusable()
     ) {
@@ -1061,6 +1180,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, iptvSaved, iptvBusy)
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
+                    if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
                     Hint(zone, sec, editing, kbd, Modifier.align(Alignment.BottomStart))
                     Pill(clock, weatherText, Modifier.align(Alignment.BottomEnd))
                 }
@@ -1282,7 +1402,7 @@ private fun ContentScreen(
                             val ks = RoundedCornerShape(u(9))
                             val lab = if (key == "MIC") (if (listening) "Ouvindo…" else "🎙 Falar") else key
                             Box(
-                                Modifier.weight(1f).height(u(44))
+                                Modifier.weight(1f).height(u(40))
                                     .background(if (key == "MIC" && listening) CLive else if (f) CCardHi else CCard, ks)
                                     .then(if (f) Modifier.border(BorderStroke(u(2), Color(0xFFCFE9FF)), ks) else Modifier),
                                 contentAlignment = Alignment.Center
@@ -1473,6 +1593,7 @@ private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier
     val t = when {
         zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
+        zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
         zone == Z.CONTENT && sec.kind == "settings" -> if (editing) "◀ ▶ mudam o valor · Voltar salva e sai" else "▲▼ escolhe · OK entra no item · Voltar ao menu"
         zone == Z.CONTENT && kbd -> "setas no teclado · OK digita · Voltar fecha"
         zone == Z.CONTENT -> "setas movem · OK abre · OK 2x favorita · Voltar sai"
@@ -1552,6 +1673,28 @@ private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean) {
                     color = CLight, fontSize = ts(16)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun KeymapBox(step: Int, last: String) {
+    Box(Modifier.fillMaxSize().background(Color(0xEE02030A)), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(u(18))
+        Column(
+            Modifier.width(u(640)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34)),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Mapear o controle", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(u(16)))
+            Text(
+                if (step == 0) "Aperte agora o botão VOLTAR do seu controle." else "Agora aperte o botão INÍCIO (ou o que deve voltar ao menu).",
+                color = CLight, fontSize = ts(20), textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(u(16)))
+            Text(if (last.isEmpty()) "Esperando um botão…" else "Último botão: $last", color = CAccent, fontSize = ts(18))
+            Spacer(Modifier.height(u(12)))
+            Text("Passo ${step + 1} de 2 · OK cancela e usa o padrão", color = CDim, fontSize = ts(14))
         }
     }
 }
