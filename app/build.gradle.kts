@@ -11,8 +11,8 @@ android {
         applicationId = "com.auroratv.tv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.6"
     }
 
     buildTypes {
@@ -54,4 +54,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-effect:$media3")
+    implementation("androidx.media3:media3-common:$media3")
 }
