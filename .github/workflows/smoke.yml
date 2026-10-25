@@ -45,7 +45,7 @@ jobs:
         if: always()
         run: |
           ls -la logcat.txt || echo "sem logcat"
-          L=$(grep -iE "auroratv|AndroidRuntime|FATAL|ActivityTaskManager|ActivityManager.*(died|crash)|Exception|monkey" logcat.txt | grep -v "Choreographer" | head -40 | cut -c1-260 | tr '\n' '|' | cut -c1-3800)
+          L=$(grep -iE "auroratv|FATAL EXCEPTION|AndroidRuntime: [^S]|Caused by|ActivityManager.*(died|crash)|has died|Force finishing" logcat.txt | grep -v "BestClock" | head -40 | cut -c1-260 | tr '\n' '|' | cut -c1-3800)
           echo "::error title=Log::$L"
       - uses: actions/upload-artifact@v4
         if: always()
