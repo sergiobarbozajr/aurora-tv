@@ -75,7 +75,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -966,17 +965,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         testIdx = 0
                         zone = Z.TEST
                     }
-                    "Mapear controle remoto" ->
-            "Ensina ao app qual botão do seu controle é o VOLTAR e qual é o INÍCIO." + nl + nl +
-                (if (customKeys.isEmpty()) "Agora: padrão do Android." else "Agora: " + customKeys.entries.joinToString(" · ") { android.view.KeyEvent.keyCodeToString(it.key) + " = " + it.value }) +
-                nl + nl + "OK para começar."
-        "Bloquear anúncios (DNS)" ->
-            "O AuroraTV não tem anúncios. Para reduzir anúncios nos outros apps e sites, use um DNS que bloqueia anúncios:" + nl + nl +
-                "1. OK abre as configurações de rede." + nl +
-                "2. Procure “DNS privado” (Rede > Avançado) e escolha nome do provedor." + nl +
-                "3. Digite: dns.adguard-dns.com" + nl + nl +
-                "Se o seu Google TV não mostrar DNS privado, troque o DNS no roteador. Anúncios dentro de Netflix, Prime e similares não são bloqueados por isso."
-        "Abrir ajustes do Google TV" -> openDisplaySettings(context)
+                    "Abrir ajustes do Google TV" -> openDisplaySettings(context)
                     "Mapear controle remoto" -> {
                         customKeys = emptyMap()
                         keymapStep = 0
@@ -1533,6 +1522,16 @@ private fun settingBody(
                 "• Movimento (DNR/MEMC): Baixo para filmes, Médio para esporte" + nl + nl +
                 hdrLine(context) + nl + "O teto é 4K. O HDR só aparece em conteúdo que já é HDR."
         "Teste de tela" -> "Cores puras em tela cheia para achar linhas, manchas e LEDs com defeito." + nl + nl + "OK para começar."
+                    "Mapear controle remoto" ->
+            "Ensina ao app qual botão do seu controle é o VOLTAR e qual é o INÍCIO." + nl + nl +
+                (if (customKeys.isEmpty()) "Agora: padrão do Android." else "Agora: " + customKeys.entries.joinToString(" · ") { android.view.KeyEvent.keyCodeToString(it.key) + " = " + it.value }) +
+                nl + nl + "OK para começar."
+        "Bloquear anúncios (DNS)" ->
+            "O AuroraTV não tem anúncios. Para reduzir anúncios nos outros apps e sites, use um DNS que bloqueia anúncios:" + nl + nl +
+                "1. OK abre as configurações de rede." + nl +
+                "2. Procure “DNS privado” (Rede > Avançado) e escolha nome do provedor." + nl +
+                "3. Digite: dns.adguard-dns.com" + nl + nl +
+                "Se o seu Google TV não mostrar DNS privado, troque o DNS no roteador. Anúncios dentro de Netflix, Prime e similares não são bloqueados por isso."
         "Abrir ajustes do Google TV" -> "Abre as configurações de tela do Google TV: resolução de saída, taxa de atualização, HDR e Dolby Vision." + nl + nl + "OK para abrir."
         "Conta IPTV" ->
             (if (iptvSaved) "Conta conectada: $iptvTotal itens carregados." else "Nenhuma conta conectada.") + nl + nl +
