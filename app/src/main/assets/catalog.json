@@ -1,0 +1,103 @@
+{
+  "cities": [
+    {"name": "Macaé", "lat": -22.37, "lon": -41.79},
+    {"name": "Rio das Ostras", "lat": -22.53, "lon": -41.95},
+    {"name": "Campos dos Goytacazes", "lat": -21.75, "lon": -41.32},
+    {"name": "Niterói", "lat": -22.88, "lon": -43.10},
+    {"name": "Rio de Janeiro", "lat": -22.91, "lon": -43.17},
+    {"name": "Vitória", "lat": -20.32, "lon": -40.34},
+    {"name": "Belo Horizonte", "lat": -19.92, "lon": -43.94},
+    {"name": "São Paulo", "lat": -23.55, "lon": -46.63}
+  ],
+  "lists": [
+    {
+      "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_brazil.m3u8",
+      "source": "Internet",
+      "only": ["TV Cultura", "Record News", "TV Câmara", "TVE RS", "Futura", "COM Brasil", "Rede Brasil", "ISTV", "TV Brasil", "TV Senado", "NBr"]
+    }
+  ],
+  "tabs": [
+    {
+      "name": "TV AO VIVO",
+      "guide": true,
+      "items": [
+        {"title": "Globo", "source": "Antena", "kind": "antenna", "app": "Globoplay", "desc": "TV aberta nacional"},
+        {"title": "SBT", "source": "Antena", "kind": "antenna", "app": "SBT+", "desc": "TV aberta nacional"},
+        {"title": "Record", "source": "Antena", "kind": "antenna", "app": "PlayPlus", "desc": "TV aberta nacional"},
+        {"title": "Band", "source": "Antena", "kind": "antenna", "app": "BandPlay", "desc": "TV aberta nacional"},
+        {"title": "RedeTV!", "source": "Antena", "kind": "antenna", "app": "RedeTV!", "desc": "TV aberta nacional"},
+        {"title": "TV Brasil", "source": "Antena", "kind": "antenna", "app": "TV Brasil Play", "desc": "TV pública nacional"},
+        {"title": "TV Cultura", "source": "Internet", "desc": "Canal público aberto", "url": "https://player-tvcultura.stream.uol.com.br/live/tvcultura.m3u8", "live": true},
+        {"title": "Record News", "source": "Internet", "desc": "Notícias 24 horas", "url": "https://rnw-rn.otteravision.com/rnw/rn/rnw_rn.m3u8", "live": true},
+        {"title": "TV Câmara", "source": "Internet", "desc": "Câmara dos Deputados", "url": "https://stream3.camara.gov.br/tv1/manifest.m3u8", "live": true},
+        {"title": "TVE RS", "source": "Internet", "desc": "TV pública do Rio Grande do Sul", "url": "http://streaming.procergs.com.br:1935/tve/stve/playlist.m3u8", "live": true},
+        {"title": "DW News", "source": "Internacional", "desc": "Alemanha · em inglês", "url": "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/master.m3u8", "live": true},
+        {"title": "France 24", "source": "Internacional", "desc": "França · em inglês", "url": "https://live.france24.com/hls/live/2037218/F24_EN_HI_HLS/master_5000.m3u8", "live": true},
+        {"title": "France 24 Español", "source": "Internacional", "desc": "França · em espanhol", "url": "https://live.france24.com/hls/live/2037220/F24_ES_HI_HLS/master_5000.m3u8", "live": true},
+        {"title": "NHK World", "source": "Internacional", "desc": "Japão · em inglês", "url": "https://nhkwlive-ojp.akamaized.net/hls/live/2003459/nhkwlive-ojp-en/index.m3u8", "live": true},
+        {"title": "Al Jazeera", "source": "Internacional", "desc": "Catar · em inglês", "url": "https://live-hls-web-aje.getaj.net/AJE/index.m3u8", "live": true}
+      ]
+    },
+    {
+      "name": "FILMES",
+      "rowTitle": "Filmes de licença livre",
+      "hero": {"tag": "FILMES", "title": "Filmes", "desc": "Por enquanto, filmes abertos da Blender Foundation. Serviços de assinatura continuam nos apps deles, na tela inicial do Roku.", "color": "0x1A2340FF"},
+      "items": [
+        {"title": "Sintel", "source": "Licença livre", "desc": "Animação · 15 min", "url": "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8", "color": "0x2A2140FF"},
+        {"title": "Big Buck Bunny", "source": "Licença livre", "desc": "Animação · 10 min", "url": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", "color": "0x1D3A30FF"},
+        {"title": "Tears of Steel", "source": "Licença livre", "desc": "Ficção científica · 12 min", "url": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8", "color": "0x1A2C44FF"}
+      ]
+    },
+    {
+      "name": "SÉRIES",
+      "rowTitle": "Séries",
+      "hero": {"tag": "SÉRIES", "title": "Séries", "desc": "Espaço reservado para séries de fontes gratuitas e legais.", "color": "0x15302FFF"},
+      "items": [{"title": "Em breve", "source": "Reservado", "desc": "Fonte ainda não definida", "color": "0x1A1A1AFF"}]
+    },
+    {
+      "name": "ANIMES",
+      "rowTitle": "Animes",
+      "hero": {"tag": "ANIMES", "title": "Animes", "desc": "Canal aberto de animes na internet.", "color": "0x2A1A40FF"},
+      "items": [
+        {"title": "Anime TV", "source": "Ao vivo", "desc": "Canal de animes 24 horas", "url": "https://stmv1.srvif.com/animetv/animetv/playlist.m3u8", "live": true, "color": "0x3A1A30FF"}
+      ]
+    },
+    {
+      "name": "NOVELAS",
+      "rowTitle": "Novelas",
+      "hero": {"tag": "NOVELAS", "title": "Novelas", "desc": "As novelas das emissoras passam ao vivo pela antena, na aba TV AO VIVO.", "color": "0x3A2A10FF"},
+      "items": [{"title": "Em breve", "source": "Reservado", "desc": "Fonte ainda não definida", "color": "0x1A1A1AFF"}]
+    },
+    {
+      "name": "ESPORTE",
+      "rowTitle": "Esporte",
+      "hero": {"tag": "ESPORTE", "title": "Esporte", "desc": "Espaço reservado para canais esportivos gratuitos e oficiais.", "color": "0x103A20FF"},
+      "items": [{"title": "Em breve", "source": "Reservado", "desc": "Fonte ainda não definida", "color": "0x1A1A1AFF"}]
+    },
+    {
+      "name": "NOTÍCIAS",
+      "rowTitle": "Notícias ao vivo",
+      "hero": {"tag": "NOTÍCIAS", "title": "Notícias", "desc": "Canais de notícias nacionais e internacionais.", "color": "0x22282FFF"},
+      "items": [
+        {"title": "Record News", "source": "Nacional", "desc": "Notícias 24 horas", "url": "https://rnw-rn.otteravision.com/rnw/rn/rnw_rn.m3u8", "live": true, "color": "0x3A1A2AFF"},
+        {"title": "DW News", "source": "Internacional", "desc": "Alemanha · em inglês", "url": "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/master.m3u8", "live": true, "color": "0x1A2C44FF"},
+        {"title": "France 24", "source": "Internacional", "desc": "França · em inglês", "url": "https://live.france24.com/hls/live/2037218/F24_EN_HI_HLS/master_5000.m3u8", "live": true, "color": "0x2A2140FF"},
+        {"title": "Al Jazeera", "source": "Internacional", "desc": "Catar · em inglês", "url": "https://live-hls-web-aje.getaj.net/AJE/index.m3u8", "live": true, "color": "0x1D3A30FF"}
+      ]
+    },
+    {
+      "name": "SHOWS",
+      "rowTitle": "Shows",
+      "hero": {"tag": "SHOWS", "title": "Shows", "desc": "Espaço reservado para shows e música de fontes gratuitas.", "color": "0x3A1A30FF"},
+      "items": [{"title": "Em breve", "source": "Reservado", "desc": "Fonte ainda não definida", "color": "0x1A1A1AFF"}]
+    },
+    {
+      "name": "DOCUMENTÁRIOS",
+      "rowTitle": "Documentários",
+      "hero": {"tag": "DOCUMENTÁRIOS", "title": "Documentários", "desc": "A TV Cultura exibe documentários na programação.", "color": "0x152A40FF"},
+      "items": [
+        {"title": "TV Cultura", "source": "Nacional", "desc": "Canal público aberto", "url": "https://player-tvcultura.stream.uol.com.br/live/tvcultura.m3u8", "live": true, "color": "0x1A2C44FF"}
+      ]
+    }
+  ]
+}
