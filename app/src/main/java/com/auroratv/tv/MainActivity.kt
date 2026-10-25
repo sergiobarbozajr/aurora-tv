@@ -348,6 +348,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var playList by remember { mutableStateOf<List<Card>>(emptyList()) }
     var playIdx by remember { mutableStateOf(0) }
     var noSignal by remember { mutableStateOf(false) }
+    var epgText by remember { mutableStateOf("") }
 
     val player = remember { ExoPlayer.Builder(context).build().apply { playWhenReady = true } }
     DisposableEffect(player) {
@@ -608,6 +609,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         playList = list.filter { it.kind == "stream" && it.url != null }
         playIdx = playList.indexOfFirst { it.name == c.name }.coerceAtLeast(0)
         noSignal = false
+        epgText = ""
+        if (c.kind == "stream" && c.extra.count { it == '|' } >= 3) Iptv.shortEpg(c.extra) { t -> if (playCard?.name == c.name) epgText = t }
         Store.pushHistory(c.name)
         histVersion++
         zone = Z.PLAYER
@@ -765,7 +768,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     when (r.error) {
                         "login" -> "Usuário ou senha não aceitos."
                         "vazio" -> "A lista veio vazia."
-                        else -> "Sem sinal do servidor (código ${Iptv.lastCode}). Confira o endereço e a porta."
+                        else -> "Não consegui falar com o servidor: " + Iptv.lastError.ifBlank { "código ${Iptv.lastCode}" } + ". Endereço tentado: " + Iptv.cleanBase(fUrl)
                     }
                 )
             }
@@ -1167,7 +1170,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             .focusable()
     ) {
         when (zone) {
-            Z.PLAYER -> PlayerScreen(player, playCard, noSignal)
+            Z.PLAYER -> PlayerScreen(player, playCard, noSignal, epgText)
             Z.TEST -> {
                 val tc = TEST_COLORS[testIdx]
                 Box(Modifier.fillMaxSize().background(tc.first)) {
@@ -1280,6 +1283,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
+    val art = if (c.kind == "app" || c.img.isNotEmpty()) rememberCardImage(c) else null
     var m = Modifier.width(w).height(u(122))
     if (focused) {
         m = m.drawBehind {
@@ -1296,7 +1300,20 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean) {
                 Spacer(Modifier.height(u(6)))
                 Text(c.label, color = CLight, fontSize = ts(13), maxLines = 2)
             }
+        } else if (c.kind == "app" && art != null && !Img.isIcon(c)) {
+            // banner oficial do app instalado (o mesmo da tela inicial do Google TV)
+            androidx.compose.foundation.Image(
+                art, c.name, Modifier.fillMaxSize().clip(shape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
         } else {
+            if (art != null) {
+                androidx.compose.foundation.Image(
+                    art, c.name,
+                    Modifier.align(Alignment.Center).padding(bottom = u(18)).width(u(if (c.kind == "app") 64 else 150)).height(u(64)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
+            }
             Column(Modifier.fillMaxSize().padding(u(12)), verticalArrangement = Arrangement.SpaceBetween) {
                 if (c.label.isNotEmpty()) {
                     val live = c.kind == "stream" || c.kind == "antenna"
@@ -1310,7 +1327,8 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean) {
                 } else Spacer(Modifier.height(u(1)))
                 Text(
                     c.name, color = if (c.kind == "empty") CDim else CInk,
-                    fontSize = ts(if (c.kind == "empty") 15 else 17), fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis
+                    fontSize = ts(if (c.kind == "empty") 15 else if (art != null) 14 else 17), fontWeight = FontWeight.Bold,
+                    maxLines = if (art != null) 1 else 2, overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1654,7 +1672,7 @@ private fun Pill(clock: String, weather: String, modifier: Modifier) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean) {
+private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean, epg: String) {
     var dyn by remember { mutableStateOf("") }
     LaunchedEffect(card?.url) {
         dyn = ""
@@ -1706,6 +1724,7 @@ private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean) {
                     }
                 }
                 Text(card.name, color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (epg.isNotEmpty()) Text(epg, color = CAccent, fontSize = ts(17), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     if (card.kind == "stream") "▲▼ trocam de canal · Voltar sai" else "◀ ▶ pulam 10 s · OK pausa · Voltar sai",
                     color = CLight, fontSize = ts(16)

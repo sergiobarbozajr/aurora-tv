@@ -15,7 +15,8 @@ data class Card(
     val url: String? = null,
     val extra: String = "",
     val pkgs: List<String> = emptyList(),
-    val desc: String = ""
+    val desc: String = "",
+    val img: String = ""
 )
 
 data class RowData(val title: String, val cards: List<Card>)
