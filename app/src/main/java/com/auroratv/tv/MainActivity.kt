@@ -108,7 +108,7 @@ private val CCardHi = Color(0xFF232A3B)
 private val CLive = Color(0xFFFF6B81)
 private val CPanel = Color(0xFF161A24)
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -309,6 +309,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var exitSel by remember { mutableStateOf(0) }
     var iptvFirst by remember { mutableStateOf(false) }
     var keymapStep by remember { mutableStateOf(0) }
+    var newsRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
+    var reader by remember { mutableStateOf<Card?>(null) }
     var keymapLast by remember { mutableStateOf("") }
 
     var toastMsg by remember { mutableStateOf<String?>(null) }
@@ -394,6 +396,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         Net.fetchWeather(c) { r -> weatherText = if (r != null) c.name + " " + r.substringBefore(" · ") else c.name }
     }
     LaunchedEffect(Unit) {
+        while (true) {
+            News.load { r -> if (r.isNotEmpty()) newsRows = r }
+            delay(15 * 60 * 1000L)
+        }
+    }
+    LaunchedEffect(Unit) {
         for (src in catalog.lists) {
             Net.loadM3u(src) { loaded -> m3uExtra = m3uExtra + loaded }
         }
@@ -468,6 +476,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val out: List<RowData> = when (name) {
             "Início" -> {
                 val r = ArrayList<RowData>()
+                r.addAll(newsRows)
                 val h = histCards()
                 if (h.isNotEmpty()) r.add(RowData("Continuar assistindo", h))
                 r.add(RowData("Abertos pela internet", free.internet))
@@ -513,7 +522,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         return out.filter { it.cards.isNotEmpty() }
     }
 
-    val rows = remember(nav, query, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards) { rowsFor(nav) }
+    val rows = remember(nav, query, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows) { rowsFor(nav) }
     val sec = SECTIONS[nav]
     val base = if (sec.kind == "search") 1 else 0
 
@@ -572,7 +581,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun toggleFav(c: Card) {
-        if (c.kind == "login" || c.kind == "empty") return
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote") return
         if (favs.contains(c.name)) {
             favs.remove(c.name)
             showToast("${c.name} saiu dos Favoritos")
@@ -708,6 +717,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 loginField = 0
                 iptvFirst = false
             }
+            "news" -> {
+                reader = c
+                zone = Z.READER
+            }
+            "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
             "antenna" -> openAntenna(c)
             "stream", "vod" -> play(c, list)
@@ -866,13 +880,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun finishIntro() {
-        if (iptvSaved) {
-            zone = Z.NAV
-        } else {
-            zone = Z.IPTV
-            iptvFirst = true
-            loginField = 0
-        }
+        zone = Z.NAV
     }
 
     fun clampCol() {
@@ -906,7 +914,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     fun cardOk() {
         val c = curCard() ?: return
         val list = rows.getOrNull(row - base)?.cards ?: emptyList()
-        if (c.kind == "login" || c.kind == "empty") {
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote") {
             activateCard(c, list)
             return
         }
@@ -1076,6 +1084,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
             Z.KEYMAP -> {}
+            Z.READER -> if (a == "back" || a == "ok" || a == "left") zone = Z.CONTENT
             Z.TEST -> when (a) {
                 "back" -> zone = Z.CONTENT
                 "ok", "right" -> testIdx = (testIdx + 1) % TEST_COLORS.size
@@ -1207,6 +1216,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
+                    if (zone == Z.READER) ReaderBox(reader)
                     Hint(zone, sec, editing, kbd, Modifier.align(Alignment.BottomStart))
                     Pill(clock, weatherText, Modifier.align(Alignment.BottomEnd))
                 }
@@ -1358,6 +1368,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                 when {
                     c == null -> ""
                     c.kind == "login" -> "Conecte a sua conta licenciada e os canais entram aqui."
+                    c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene -> "OK abre o app · a conta é a sua, dentro do próprio serviço"
                     c.kind == "antenna" -> "OK abre a TV da TCL na entrada de antena"
                     else -> "OK abre · OK duas vezes favorita"
@@ -1621,6 +1632,7 @@ private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier
         zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
         zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
+        zone == Z.READER -> "Voltar ou OK fecha"
         zone == Z.CONTENT && sec.kind == "settings" -> if (editing) "◀ ▶ mudam o valor · Voltar salva e sai" else "▲▼ escolhe · OK entra no item · Voltar ao menu"
         zone == Z.CONTENT && kbd -> "setas no teclado · OK digita · Voltar fecha"
         zone == Z.CONTENT -> "setas movem · OK abre · OK 2x favorita · Voltar sai"
@@ -1722,6 +1734,22 @@ private fun KeymapBox(step: Int, last: String) {
             Text(if (last.isEmpty()) "Esperando um botão…" else "Último botão: $last", color = CAccent, fontSize = ts(18))
             Spacer(Modifier.height(u(12)))
             Text("Passo ${step + 1} de 2 · OK cancela e usa o padrão", color = CDim, fontSize = ts(14))
+        }
+    }
+}
+
+@Composable
+private fun ReaderBox(c: Card?) {
+    Box(Modifier.fillMaxSize().background(Color(0xE602030A)), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(u(18))
+        Column(Modifier.width(u(860)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(36))) {
+            Text((c?.label ?: "").uppercase(), color = CAccent, fontSize = ts(15), fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(u(10)))
+            Text(c?.name ?: "", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(u(16)))
+            Text(c?.desc ?: "", color = CLight, fontSize = ts(20), lineHeight = ts(30), maxLines = 9, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(u(18)))
+            Text("Voltar ou OK fecha", color = CDim, fontSize = ts(14))
         }
     }
 }
