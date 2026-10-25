@@ -40,6 +40,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -90,7 +92,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -107,7 +111,7 @@ private val CCardHi = Color(0xFF232A3B)
 private val CLive = Color(0xFFFF6B81)
 private val CPanel = Color(0xFF161A24)
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -347,28 +351,61 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var playCard by remember { mutableStateOf<Card?>(null) }
     var playList by remember { mutableStateOf<List<Card>>(emptyList()) }
     var playIdx by remember { mutableStateOf(0) }
-    var noSignal by remember { mutableStateOf(false) }
     var epgText by remember { mutableStateOf("") }
 
-    val player = remember { ExoPlayer.Builder(context).build().apply { playWhenReady = true } }
-    DisposableEffect(player) {
-        val l = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                noSignal = true
-            }
+    val pb = remember { Playback(context) }
+    val player = pb.player
+    var lastRelogin by remember { mutableStateOf(0L) }
 
+    // menu do player, ajuste de tela, episódios
+    var pmenu by remember { mutableStateOf<String?>(null) }
+    var pmSel by remember { mutableStateOf(0) }
+    var menuTick by remember { mutableStateOf(0) }
+    var osdTick by remember { mutableStateOf(0) }
+    var screenMode by remember { mutableStateOf(Store.screenMode.coerceIn(0, SCREEN_NAMES.size - 1)) }
+    var adj by remember { mutableStateOf(intArrayOf(100, 100, 0, 0)) }
+    var adjusting by remember { mutableStateOf(false) }
+    var adjPart by remember { mutableStateOf(0) }
+    var seasons by remember { mutableStateOf<List<Iptv.Season>>(emptyList()) }
+    var seasonIdx by remember { mutableStateOf(0) }
+    var epIdx by remember { mutableStateOf(0) }
+    var seriesName by remember { mutableStateOf("") }
+    var seriesActive by remember { mutableStateOf(false) }
+    var epFromPlayer by remember { mutableStateOf(false) }
+    var epTick by remember { mutableStateOf(0) }
+    var hideOff by remember { mutableStateOf(Store.hideOffline) }
+    var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
+    var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
+    var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    DisposableEffect(pb) {
+        val l = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 applyEnhance(player, enhance, isHdrFormat(player))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) noSignal = false
+                if (playbackState == Player.STATE_ENDED) nextEpisode?.invoke()
             }
         }
         player.addListener(l)
+        pb.onAuthExpired = {
+            val now = System.currentTimeMillis()
+            if (Store.iptvUrl.isNotBlank() && now - lastRelogin > 60000) {
+                lastRelogin = now
+                // login silencioso: refaz a sessão e atualiza a lista sem pedir nada
+                Iptv.load(Store.iptvUrl, Store.iptvUser, Store.iptvPass) { r ->
+                    if (r.total > 0) {
+                        iptvRows = r.rows
+                        iptvTotal = r.total
+                        iptvVersion++
+                    }
+                }
+            }
+        }
         onDispose {
             player.removeListener(l)
-            player.release()
+            pb.release()
         }
     }
 
@@ -376,9 +413,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     LaunchedEffect(zone) {
         try { focus.requestFocus() } catch (e: Exception) {}
     }
-    LaunchedEffect(zone) {
-        videoPlayingFlag = zone == Z.PLAYER
-        Sound.setPaused(zone == Z.PLAYER)
+    LaunchedEffect(zone, epFromPlayer) {
+        val v = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer)
+        videoPlayingFlag = v
+        Sound.setPaused(v)
     }
     LaunchedEffect(Unit) { Sound.apply(Store.sound) }
     LaunchedEffect(nav, zone) {
@@ -419,31 +457,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
         }
     }
-    // sem sinal: tempo demais carregando também conta como sem sinal; tenta reconectar sozinho
-    LaunchedEffect(zone, playCard) {
-        if (zone == Z.PLAYER) {
-            var stuck = 0
-            while (true) {
-                delay(1000)
-                if (player.playbackState == Player.STATE_BUFFERING) {
-                    stuck++
-                    if (stuck >= 12) noSignal = true
-                } else stuck = 0
-            }
-        }
-    }
-    LaunchedEffect(noSignal, zone) {
-        if (noSignal && zone == Z.PLAYER) {
-            while (true) {
-                delay(8000)
-                try {
-                    player.prepare()
-                    player.play()
-                } catch (e: Exception) {}
-            }
-        }
-    }
-
     // ---------- dados ----------
     val free = remember(catalog, m3uExtra) { buildFree(catalog, m3uExtra) }
     val allCards = remember(free, iptvVersion) {
@@ -460,6 +473,38 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         m
     }
 
+    LaunchedEffect(allCards) {
+        searchIndex = withContext(Dispatchers.Default) { allCards.map { Iptv.norm(it.name) to it } }
+    }
+    LaunchedEffect(query, searchIndex) {
+        val q = Iptv.norm(query.trim())
+        if (q.isEmpty()) {
+            searchRows = listOf(RowData("Sugestões", (free.intl + free.internet + free.anime).take(10)))
+            return@LaunchedEffect
+        }
+        delay(120) // espera a próxima letra; a busca roda fora da tela
+        val idx = searchIndex
+        val res = withContext(Dispatchers.Default) {
+            val starts = ArrayList<Card>()
+            val other = ArrayList<Card>()
+            for ((n, c) in idx) {
+                if (n.startsWith(q)) starts.add(c) else if (n.contains(q)) other.add(c)
+                if (starts.size + other.size >= 150) break
+            }
+            starts + other
+        }
+        searchRows = if (res.isEmpty()) listOf(RowData("Nada encontrado para “$query”", listOf(mkCard("Tente outra palavra", "", "empty", 0))))
+        else listOf(RowData("Resultados para “$query” (${res.size})", res))
+    }
+    LaunchedEffect(Unit) {
+        delay(30000)
+        while (true) {
+            val mine = (favs.mapNotNull { byName[it] } + Store.history().mapNotNull { byName[it] }).distinctBy { it.name }
+            pb.checkChannels(mine)
+            delay(30 * 60 * 1000L)
+        }
+    }
+
     fun loginCard(): Card = mkCard(
         if (iptvSaved) "Conta IPTV conectada" else "Entrar com IPTV",
         if (iptvSaved) "$iptvTotal itens · OK para trocar ou remover" else "conta licenciada",
@@ -470,7 +515,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     fun rowsFor(i: Int): List<RowData> {
         val name = SECTIONS[i].name
-        fun iptv(sec: String): List<RowData> = iptvRows[sec] ?: emptyList()
+        fun iptv(sec: String): List<RowData> {
+            val r = iptvRows[sec] ?: emptyList()
+            if (hideOff == 0) return r
+            return r.map { RowData(it.title, it.cards.filter { c -> pb.health[c.name] != 3 }) }
+        }
         fun withLogin(r: List<RowData>): List<RowData> =
             if (!iptvSaved) listOf(RowData("Sua conta IPTV", listOf(loginCard()))) + r else r
         val out: List<RowData> = when (name) {
@@ -484,21 +533,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r.add(RowData("Seus streams", streamRows().flatMap { it.cards }.take(8)))
                 r
             }
-            "Pesquisar" -> {
-                val q = Iptv.norm(query.trim())
-                val key = "$q#$iptvVersion#${allCards.size}"
-                if (searchCache.key != key) {
-                    searchCache.key = key
-                    searchCache.rows = if (q.isEmpty()) {
-                        listOf(RowData("Sugestões", (free.intl + free.internet + free.anime).take(10)))
-                    } else {
-                        val res = allCards.filter { Iptv.norm(it.name).contains(q) }.take(120)
-                        if (res.isEmpty()) listOf(RowData("Nada encontrado para “$query”", listOf(mkCard("Tente outra palavra", "", "empty", 0))))
-                        else listOf(RowData("Resultados para “$query” (${res.size})", res))
-                    }
-                }
-                searchCache.rows
-            }
+            "Pesquisar" -> searchRows
             "Minhas Listas" -> {
                 val f = favs.mapNotNull { byName[it] }
                 val r = ArrayList<RowData>()
@@ -522,7 +557,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         return out.filter { it.cards.isNotEmpty() }
     }
 
-    val rows = remember(nav, query, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows) { rowsFor(nav) }
+    val rows = remember(nav, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows, searchRows, hideOff) { rowsFor(nav) }
     val sec = SECTIONS[nav]
     val base = if (sec.kind == "search") 1 else 0
 
@@ -595,25 +630,41 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun play(c: Card, list: List<Card>) {
-        val url = c.url ?: return
-        try {
-            player.setMediaItem(MediaItem.fromUri(url))
-            applyQuality(player, quality)
-            applyEnhance(player, enhance, true)
-            player.prepare()
-            player.play()
-        } catch (e: Exception) {
-            noSignal = true
-        }
+        if (c.url == null) return
+        applyQuality(player, quality)
+        applyEnhance(player, enhance, true)
+        pb.start(c)
         playCard = c
         playList = list.filter { it.kind == "stream" && it.url != null }
         playIdx = playList.indexOfFirst { it.name == c.name }.coerceAtLeast(0)
-        noSignal = false
         epgText = ""
+        pmenu = null
+        adjusting = false
+        adj = Store.screenAdj(c.name) ?: Store.screenAdj("global") ?: intArrayOf(100, 100, 0, 0)
+        osdTick++
+        if (c.kind == "stream") seriesActive = false
         if (c.kind == "stream" && c.extra.count { it == '|' } >= 3) Iptv.shortEpg(c.extra) { t -> if (playCard?.name == c.name) epgText = t }
         Store.pushHistory(c.name)
         histVersion++
         zone = Z.PLAYER
+    }
+
+    fun playEpisode(si: Int, ei: Int) {
+        val s = seasons.getOrNull(si) ?: return
+        val ep = s.eps.getOrNull(ei) ?: return
+        seasonIdx = si
+        epIdx = ei
+        seriesActive = true
+        play(ep, emptyList())
+        seriesActive = true
+        nextEpisode = {
+            val ns = if (ei + 1 < s.eps.size) si else si + 1
+            val ne = if (ei + 1 < s.eps.size) ei + 1 else 0
+            if (seasons.getOrNull(ns)?.eps?.getOrNull(ne) != null && zone == Z.PLAYER) {
+                showToast("Próximo episódio")
+                playEpisode(ns, ne)
+            }
+        }
     }
 
     fun zap(d: Int) {
@@ -728,12 +779,18 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "antenna" -> openAntenna(c)
             "stream", "vod" -> play(c, list)
             "series" -> {
-                showToast("Procurando o primeiro episódio…")
-                Iptv.firstEpisode(c.extra) { url, ep ->
-                    if (url != null) {
-                        play(c.copy(url = url, kind = "vod"), emptyList())
-                        showToast("${c.name} · $ep (a escolha de episódios vem na próxima versão)")
-                    } else showToast("Sem sinal dessa série agora.")
+                showToast("Carregando temporadas e episódios…")
+                Iptv.seriesInfo(c.extra) { list ->
+                    if (list.isEmpty()) showToast("Sem sinal dessa série agora.")
+                    else {
+                        seasons = list
+                        seriesName = c.name
+                        seasonIdx = 0
+                        epIdx = 0
+                        epFromPlayer = false
+                        epTick++
+                        zone = Z.EPISODES
+                    }
                 }
             }
         }
@@ -831,6 +888,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         "enh" -> ENHANCE_NAMES[enhance]
         "city" -> catalog.cities[cityIdx].name
         "sound" -> SOUND_NAMES[soundLvl]
+        "hideoff" -> HIDEOFF_NAMES[hideOff]
         else -> METEOR_NAMES[meteorOpt]
     }
 
@@ -854,6 +912,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 soundLvl = (soundLvl + d + SOUND_NAMES.size) % SOUND_NAMES.size
                 Store.sound = soundLvl
                 Sound.apply(soundLvl)
+            }
+            "hideoff" -> {
+                hideOff = (hideOff + d + HIDEOFF_NAMES.size) % HIDEOFF_NAMES.size
+                Store.hideOffline = hideOff
             }
             else -> {
                 meteorOpt = (meteorOpt + d + METEOR_NAMES.size) % METEOR_NAMES.size
@@ -1012,8 +1074,18 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     kc = min(kc, KEYS[kr].size - 1)
                 }
                 "down" -> {
-                    kr = min(KEYS.size - 1, kr + 1)
-                    kc = min(kc, KEYS[kr].size - 1)
+                    if (kr == KEYS.size - 1) {
+                        kbd = false
+                        kr = 0
+                        kc = 0
+                        if (rows.isNotEmpty()) {
+                            row = 1
+                            col = 0
+                        }
+                    } else {
+                        kr = min(KEYS.size - 1, kr + 1)
+                        kc = min(kc, KEYS[kr].size - 1)
+                    }
                 }
                 "left" -> kc = max(0, kc - 1)
                 "right" -> kc = min(KEYS[kr].size - 1, kc + 1)
@@ -1059,20 +1131,192 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
 
+    fun menuItems(): List<String> = when (pmenu) {
+        "main" -> listOfNotNull("Áudio", "Legendas", "Ajuste de tela", if (seriesActive) "Temporadas e episódios" else null, "Informações")
+        "audio" -> {
+            val l = ArrayList<String>()
+            var n = 1
+            for (g in player.currentTracks.groups) if (g.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) for (i in 0 until g.length) {
+                l.add((if (g.isTrackSelected(i)) "● " else "") + Playback.trackLabel(g.getTrackFormat(i), n++))
+            }
+            if (l.isEmpty()) listOf("Só existe uma faixa de áudio") else l
+        }
+        "subs" -> {
+            val l = ArrayList<String>()
+            val off = player.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT)
+            l.add((if (off) "● " else "") + "Desligado")
+            var n = 1
+            for (g in player.currentTracks.groups) if (g.type == androidx.media3.common.C.TRACK_TYPE_TEXT) for (i in 0 until g.length) {
+                l.add((if (!off && g.isTrackSelected(i)) "● " else "") + Playback.trackLabel(g.getTrackFormat(i), n++))
+            }
+            l
+        }
+        "screen" -> SCREEN_NAMES.mapIndexed { i, n -> (if (i == screenMode) "● " else "") + n } + listOf("Usar este ajuste em tudo", "Restaurar padrão")
+        "info" -> {
+            val f = player.videoFormat
+            listOf(
+                "Resolução: " + (if (f != null && f.width > 0) "${f.width} x ${f.height}" else "—"),
+                "Faixa dinâmica: " + if (isHdrFormat(player)) "HDR" else "SDR",
+                "Vídeo: " + (f?.sampleMimeType?.substringAfter("/") ?: "—"),
+                "Taxa: " + (if (f != null && f.bitrate > 0) "${f.bitrate / 1000} kbps" else "—")
+            )
+        }
+        else -> emptyList()
+    }
+
+    fun selectTrack(type: Int, index: Int) {
+        var n = 0
+        for (g in player.currentTracks.groups) if (g.type == type) for (i in 0 until g.length) {
+            if (n == index) {
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(type, false)
+                    .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i))
+                    .build()
+                return
+            }
+            n++
+        }
+    }
+
+    fun menuOk() {
+        val items = menuItems()
+        val sel = items.getOrNull(pmSel) ?: return
+        when (pmenu) {
+            "main" -> {
+                pmSel = 0
+                pmenu = when {
+                    sel.startsWith("Áudio") -> "audio"
+                    sel.startsWith("Legendas") -> "subs"
+                    sel.startsWith("Ajuste") -> "screen"
+                    sel.startsWith("Temporadas") -> {
+                        epFromPlayer = true
+                        epTick++
+                        zone = Z.EPISODES
+                        null
+                    }
+                    else -> "info"
+                }
+            }
+            "audio" -> {
+                if (!sel.startsWith("Só")) selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO, pmSel)
+                pmenu = null
+                showToast("Áudio: " + sel.removePrefix("● "))
+            }
+            "subs" -> {
+                if (pmSel == 0) {
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true).build()
+                } else selectTrack(androidx.media3.common.C.TRACK_TYPE_TEXT, pmSel - 1)
+                pmenu = null
+                showToast("Legendas: " + sel.removePrefix("● "))
+            }
+            "screen" -> {
+                if (pmSel < SCREEN_NAMES.size) {
+                    screenMode = pmSel
+                    Store.screenMode = pmSel
+                    pmenu = null
+                    if (pmSel == SCREEN_NAMES.size - 1) {
+                        adjusting = true
+                        adjPart = 0
+                    } else showToast("Tela: " + SCREEN_NAMES[pmSel])
+                } else if (sel.startsWith("Usar")) {
+                    Store.saveScreenAdj("global", adj)
+                    pmenu = null
+                    showToast("Ajuste salvo para todos os vídeos")
+                } else {
+                    adj = intArrayOf(100, 100, 0, 0)
+                    playCard?.let { Store.saveScreenAdj(it.name, null) }
+                    Store.saveScreenAdj("global", null)
+                    screenMode = 0
+                    Store.screenMode = 0
+                    pmenu = null
+                    showToast("Tela restaurada ao padrão")
+                }
+            }
+            else -> pmenu = null
+        }
+    }
+
+    fun playerAct(a: String) {
+        osdTick++
+        if (adjusting) {
+            val v = adj.copyOf()
+            when (a) {
+                "ok" -> adjPart = 1 - adjPart
+                "back" -> {
+                    adjusting = false
+                    playCard?.let { Store.saveScreenAdj(it.name, adj) }
+                    showToast("Ajuste salvo para este conteúdo")
+                }
+                "left" -> if (adjPart == 0) v[0] = max(50, v[0] - 2) else v[2] = max(-100, v[2] - 2)
+                "right" -> if (adjPart == 0) v[0] = min(200, v[0] + 2) else v[2] = min(100, v[2] + 2)
+                "up" -> if (adjPart == 0) v[1] = min(200, v[1] + 2) else v[3] = max(-100, v[3] - 2)
+                "down" -> if (adjPart == 0) v[1] = max(50, v[1] - 2) else v[3] = min(100, v[3] + 2)
+            }
+            adj = v
+            return
+        }
+        if (pmenu != null) {
+            menuTick++
+            val n = menuItems().size
+            when (a) {
+                "up" -> pmSel = max(0, pmSel - 1)
+                "down" -> pmSel = min(n - 1, pmSel + 1)
+                "ok", "right" -> menuOk()
+                "back", "left" -> {
+                    if (pmenu == "main") pmenu = null else {
+                        pmenu = "main"
+                        pmSel = 0
+                    }
+                }
+            }
+            return
+        }
+        if (pb.diag != null && a == "ok") {
+            pb.retryNow()
+            return
+        }
+        val live = playCard?.kind == "stream"
+        when (a) {
+            "back" -> {
+                pb.stop()
+                nextEpisode = null
+                zone = Z.CONTENT
+            }
+            "up" -> if (live) zap(-1) else {
+                pmenu = "main"
+                pmSel = 0
+                menuTick++
+            }
+            "down" -> if (live) zap(1)
+            "left" -> if (!live) player.seekTo(max(0L, player.currentPosition - 10000L))
+            "right" -> if (!live) player.seekTo(player.currentPosition + 10000L)
+            "ok" -> if (!live) {
+                if (player.isPlaying) player.pause() else player.play()
+            }
+        }
+    }
+
     fun act(a: String) {
         when (zone) {
             Z.INTRO -> finishIntro()
-            Z.PLAYER -> when (a) {
-                "back" -> {
-                    player.stop()
-                    zone = Z.CONTENT
-                }
-                "up" -> zap(-1)
-                "down" -> zap(1)
-                "left" -> if (playCard?.kind != "stream") player.seekTo(max(0L, player.currentPosition - 10000L))
-                "right" -> if (playCard?.kind != "stream") player.seekTo(player.currentPosition + 10000L)
-                "ok" -> if (playCard?.kind != "stream") {
-                    if (player.isPlaying) player.pause() else player.play()
+            Z.PLAYER -> playerAct(a)
+            Z.EPISODES -> {
+                epTick++
+                val s = seasons.getOrNull(seasonIdx)
+                when (a) {
+                    "up" -> epIdx = max(0, epIdx - 1)
+                    "down" -> if (s != null) epIdx = min(s.eps.size - 1, epIdx + 1)
+                    "left" -> if (seasonIdx > 0) {
+                        seasonIdx--
+                        epIdx = 0
+                    }
+                    "right" -> if (seasonIdx < seasons.size - 1) {
+                        seasonIdx++
+                        epIdx = 0
+                    }
+                    "ok" -> playEpisode(seasonIdx, epIdx)
+                    "back", "home" -> zone = if (epFromPlayer) Z.PLAYER else Z.CONTENT
                 }
             }
             Z.KEYMAP -> {}
@@ -1146,8 +1390,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     BackHandler(enabled = true) { act("back") }
 
-    val tick = frameClock(zone != Z.PLAYER && zone != Z.TEST)
-    val showMain = zone != Z.PLAYER && zone != Z.TEST
+    val inVideo = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer)
+    val tick = frameClock(!inVideo && zone != Z.TEST)
+    val showMain = !inVideo && zone != Z.TEST
 
     Box(
         Modifier
@@ -1169,9 +1414,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             .focusable()
     ) {
-        when (zone) {
-            Z.PLAYER -> PlayerScreen(player, playCard, noSignal, epgText)
-            Z.TEST -> {
+        when {
+            inVideo -> {
+                PlayerScreen(pb, playCard, epgText, osdTick, screenMode, adj, adjusting, adjPart, pmenu != null || adjusting)
+                if (pmenu != null && zone == Z.PLAYER) PlayerMenu(pmenu ?: "", menuItems(), pmSel, menuTick) { pmenu = null }
+            }
+            zone == Z.TEST -> {
                 val tc = TEST_COLORS[testIdx]
                 Box(Modifier.fillMaxSize().background(tc.first)) {
                     Text(
@@ -1199,7 +1447,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         )
                     } else if (zone != Z.IPTV) {
                         ContentScreen(
-                            sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard()
+                            sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health
                         )
                     }
                     Sidebar(nav, zone == Z.NAV)
@@ -1213,6 +1461,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     Pill(clock, weatherText, Modifier.align(Alignment.BottomEnd))
                 }
             }
+        }
+        if (zone == Z.EPISODES) {
+            EpisodesPanel(seriesName, seasons, seasonIdx, epIdx, playCard?.name, epTick, epFromPlayer) { zone = Z.PLAYER }
         }
         val tm = toastMsg
         if (tm != null && zone != Z.INTRO) {
@@ -1279,7 +1530,7 @@ private fun NavItem(s: Section, foc: Boolean, sel: Boolean) {
 }
 
 @Composable
-private fun CardView(c: Card, focused: Boolean, fav: Boolean) {
+private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
@@ -1333,6 +1584,14 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean) {
             }
         }
         if (fav) Text("★", color = CWarm, fontSize = ts(20), modifier = Modifier.align(Alignment.TopEnd).padding(top = u(8), end = u(10)))
+        if (hl > 0 && c.kind == "stream") {
+            // saúde do canal: verde online, amarelo instável, vermelho fora do ar
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(end = u(10), bottom = u(10)).size(u(10))
+                    .clip(RoundedCornerShape(u(5)))
+                    .background(if (hl == 1) Color(0xFF5BE38A) else if (hl == 2) Color(0xFFFFD25A) else Color(0xFFFF5A6E))
+            )
+        }
     }
 }
 
@@ -1387,7 +1646,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
 }
 
 @Composable
-private fun RowsView(rows: List<RowData>, base: Int, active: Boolean, row: Int, col: Int, favs: List<String>, modifier: Modifier) {
+private fun RowsView(rows: List<RowData>, base: Int, active: Boolean, row: Int, col: Int, favs: List<String>, health: Map<String, Int>, modifier: Modifier) {
     val state = rememberLazyListState()
     LaunchedEffect(row, active) {
         if (active) state.animateScrollToItem(max(0, row - base - 1))
@@ -1405,7 +1664,7 @@ private fun RowsView(rows: List<RowData>, base: Int, active: Boolean, row: Int, 
                     if (isActive) rs.animateScrollToItem(max(0, col - 3))
                 }
                 LazyRow(state = rs, horizontalArrangement = Arrangement.spacedBy(u(16)), modifier = Modifier.padding(vertical = u(6))) {
-                    itemsIndexed(r.cards) { ci, c -> CardView(c, isActive && col == ci, favs.contains(c.name)) }
+                    itemsIndexed(r.cards) { ci, c -> CardView(c, isActive && col == ci, favs.contains(c.name), health[c.name] ?: 0) }
                 }
             }
         }
@@ -1415,7 +1674,7 @@ private fun RowsView(rows: List<RowData>, base: Int, active: Boolean, row: Int, 
 @Composable
 private fun ContentScreen(
     sec: Section, rows: List<RowData>, base: Int, active: Boolean, row: Int, col: Int, favs: List<String>,
-    query: String, kbd: Boolean, kr: Int, kc: Int, listening: Boolean, cur: Card?
+    query: String, kbd: Boolean, kr: Int, kc: Int, listening: Boolean, cur: Card?, health: Map<String, Int>
 ) {
     val withHero = sec.kind != "search" && sec.kind != "lists"
     Column(Modifier.fillMaxSize().padding(start = u(336), end = u(36), top = u(30), bottom = u(44))) {
@@ -1461,7 +1720,7 @@ private fun ContentScreen(
                 Spacer(Modifier.height(u(12)))
             }
         }
-        RowsView(rows, base, active && !kbd, row, col, favs, Modifier.weight(1f))
+        RowsView(rows, base, active && !kbd, row, col, favs, health, Modifier.weight(1f))
     }
 }
 
@@ -1525,7 +1784,8 @@ private fun settingBody(
         }
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
-        "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: um tema estelar de piano, calmo, em ciclo. Pausa sozinha quando um vídeo começa."
+        "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial de piano e violino, suave e minimalista, em ciclo. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Canais fora do ar" -> tip + nl + nl + "O app marca cada canal: verde = online, amarelo = instável, vermelho = fora do ar. A marcação vem de quando você assiste e de um teste leve, a cada 30 minutos, só dos seus favoritos e recentes (para não sobrecarregar o servidor)." + nl + nl + "Ocultar esconde das abas os canais marcados como fora do ar."
         "Meteoro ao apertar OK" -> tip + nl + nl + "Mostra um meteoro azul passando no alto da tela quando você aperta OK para entrar numa seção. A animação de abertura não muda."
         "Rede e internet" -> {
             val unused = netTick + 0
@@ -1672,7 +1932,10 @@ private fun Pill(clock: String, weather: String, modifier: Modifier) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean, epg: String) {
+private fun PlayerScreen(
+    pb: Playback, card: Card?, epg: String, osdTick: Int, mode: Int, adj: IntArray, adjusting: Boolean, adjPart: Int, hideOsd: Boolean
+) {
+    val player = pb.player
     var dyn by remember { mutableStateOf("") }
     LaunchedEffect(card?.url) {
         dyn = ""
@@ -1686,7 +1949,31 @@ private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean, epg:
             delay(1500)
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // painel de informações: aparece por 12 s e some; volta a cada tecla
+    var osd by remember { mutableStateOf(true) }
+    LaunchedEffect(osdTick, card?.name) {
+        osd = true
+        delay(12000)
+        osd = false
+    }
+    val k = LocalK.current
+    val rm = when (mode) {
+        0 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        2 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val bw = maxWidth
+        val bh = maxHeight
+        // o tamanho da superfície de vídeo muda o enquadramento na hora, sem recarregar o stream
+        val vm: Modifier = when (mode) {
+            3 -> Modifier.align(Alignment.Center).width(minOf(bw, bh * 16f / 9f)).height(minOf(bh, bw * 9f / 16f))
+            4 -> Modifier.align(Alignment.Center).width(bh * 4f / 3f).height(bh)
+            5 -> Modifier.align(Alignment.Center)
+                .offset(x = (adj[2] * 2f * k).dp, y = (adj[3] * 2f * k).dp)
+                .requiredSize(bw * (adj[0] / 100f), bh * (adj[1] / 100f))
+            else -> Modifier.fillMaxSize()
+        }
         AndroidView(
             factory = { ctx ->
                 // SurfaceView (padrão) preserva o HDR nativo.
@@ -1698,38 +1985,197 @@ private fun PlayerScreen(player: ExoPlayer, card: Card?, noSignal: Boolean, epg:
                     descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            update = { it.resizeMode = rm },
+            modifier = vm
         )
-        if (noSignal) {
-            Box(Modifier.fillMaxSize().background(Color(0xFF05070C)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("SEM SINAL", color = CLight, fontSize = ts(56), fontWeight = FontWeight.ExtraBold)
-                    Spacer(Modifier.height(u(10)))
-                    Text("Tentando reconectar…  ·  Voltar sai", color = CDim, fontSize = ts(18))
+        if (adjusting) {
+            Box(vm) {
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    val l = 46f * k * density
+                    val sw = 4f * k * density
+                    val c = Color(0xB3FFFFFF)
+                    val w = size.width
+                    val h = size.height
+                    drawLine(c, Offset(0f, 0f), Offset(l, 0f), sw); drawLine(c, Offset(0f, 0f), Offset(0f, l), sw)
+                    drawLine(c, Offset(w, 0f), Offset(w - l, 0f), sw); drawLine(c, Offset(w, 0f), Offset(w, l), sw)
+                    drawLine(c, Offset(0f, h), Offset(l, h), sw); drawLine(c, Offset(0f, h), Offset(0f, h - l), sw)
+                    drawLine(c, Offset(w, h), Offset(w - l, h), sw); drawLine(c, Offset(w, h), Offset(w, h - l), sw)
                 }
             }
-        } else if (card != null) {
             Column(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = u(40), vertical = u(36))
-                    .background(Color(0xBB000000), RoundedCornerShape(u(14))).padding(horizontal = u(22), vertical = u(16))
+                Modifier.align(Alignment.TopCenter).padding(top = u(30))
+                    .background(Color(0xCC05070C), RoundedCornerShape(u(14))).padding(horizontal = u(24), vertical = u(14)),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text((if (card.kind == "stream") "● AO VIVO · " else "") + card.label.uppercase(), color = CLive, fontSize = ts(15), fontWeight = FontWeight.Bold)
-                    if (dyn.isNotEmpty()) {
-                        Spacer(Modifier.width(u(12)))
-                        Box(
-                            Modifier.clip(RoundedCornerShape(u(6))).background(if (dyn == "SDR") Color(0xFF333333) else CAccent)
-                                .padding(horizontal = u(9), vertical = u(1))
-                        ) { Text(dyn, color = if (dyn == "SDR") CLight else Color(0xFF06121F), fontSize = ts(13), fontWeight = FontWeight.Bold) }
-                    }
-                }
-                Text(card.name, color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (epg.isNotEmpty()) Text(epg, color = CAccent, fontSize = ts(17), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                fun sg(v: Int) = if (v > 0) "+$v" else "$v"
                 Text(
-                    if (card.kind == "stream") "▲▼ trocam de canal · Voltar sai" else "◀ ▶ pulam 10 s · OK pausa · Voltar sai",
-                    color = CLight, fontSize = ts(16)
+                    "Largura: ${adj[0]}%     Altura: ${adj[1]}%     Posição X: ${sg(adj[2])}     Posição Y: ${sg(-adj[3])}",
+                    color = CInk, fontSize = ts(19), fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(u(6)))
+                Text(
+                    if (adjPart == 0) "TAMANHO · ◀ ▶ largura · ▲ ▼ altura · OK muda para posição · Voltar salva"
+                    else "POSIÇÃO · setas movem a imagem · OK muda para tamanho · Voltar salva",
+                    color = CWarm, fontSize = ts(15)
                 )
             }
+        }
+        val d = pb.diag
+        if (d != null) {
+            Box(Modifier.fillMaxSize().background(Color(0xFF05070C)), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(u(820))) {
+                    Text("SEM SINAL", color = CLight, fontSize = ts(56), fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(u(8)))
+                    Text(d.title, color = CInk, fontSize = ts(22), fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(u(14)))
+                    Text("Camada: " + d.layer, color = CDim, fontSize = ts(16))
+                    Text("O que houve: " + d.detail, color = CDim, fontSize = ts(16), textAlign = TextAlign.Center)
+                    Text("Correção: " + d.fix, color = CAccent, fontSize = ts(16), textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(u(14)))
+                    Text("OK tenta agora  ·  Voltar sai", color = CDim, fontSize = ts(15))
+                }
+            }
+        } else if (pb.connecting) {
+            Text(
+                "Conectando" + (card?.let { " a " + it.name } ?: "") + "…",
+                color = CLight, fontSize = ts(20),
+                modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(u(12)))
+                    .padding(horizontal = u(20), vertical = u(10))
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = osd && !hideOsd && d == null && card != null,
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 3 },
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { it / 3 }
+        ) {
+            val cc = card
+            if (cc != null) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = u(40), vertical = u(36))
+                        .background(Color(0xBB000000), RoundedCornerShape(u(14))).padding(horizontal = u(22), vertical = u(16))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text((if (cc.kind == "stream") "● AO VIVO · " else "") + cc.label.uppercase(), color = CLive, fontSize = ts(15), fontWeight = FontWeight.Bold)
+                        if (dyn.isNotEmpty()) {
+                            Spacer(Modifier.width(u(12)))
+                            Box(
+                                Modifier.clip(RoundedCornerShape(u(6))).background(if (dyn == "SDR") Color(0xFF333333) else CAccent)
+                                    .padding(horizontal = u(9), vertical = u(1))
+                            ) { Text(dyn, color = if (dyn == "SDR") CLight else Color(0xFF06121F), fontSize = ts(13), fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                    Text(cc.name, color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (epg.isNotEmpty()) Text(epg, color = CAccent, fontSize = ts(17), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        if (cc.kind == "stream") "▲▼ trocam de canal · Voltar sai" else "▲ menu (áudio, legendas, tela) · ◀ ▶ pulam 10 s · OK pausa · Voltar sai",
+                        color = CLight, fontSize = ts(16)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenu(kind: String, items: List<String>, sel: Int, tick: Int, onTimeout: () -> Unit) {
+    LaunchedEffect(tick) {
+        delay(15000)
+        onTimeout()
+    }
+    val title = when (kind) {
+        "main" -> "Opções"
+        "audio" -> "Áudio"
+        "subs" -> "Legendas"
+        "screen" -> "Ajuste de tela"
+        else -> "Informações"
+    }
+    Box(Modifier.fillMaxSize()) {
+        val shape = RoundedCornerShape(u(18))
+        Column(
+            Modifier.align(Alignment.CenterEnd).padding(end = u(40)).width(u(440))
+                .background(Color(0xE60E121B), shape).border(BorderStroke(u(1), Color(0x33FFFFFF)), shape).padding(u(24))
+        ) {
+            Text(title, color = CInk, fontSize = ts(26), fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(u(12)))
+            items.forEachIndexed { i, t ->
+                val on = i == sel && kind != "info"
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = u(2))
+                        .background(if (on) Color.White else Color.Transparent, RoundedCornerShape(u(10)))
+                        .padding(horizontal = u(16), vertical = u(9))
+                ) {
+                    Text(
+                        t, color = if (on) Color.Black else CLight, fontSize = ts(18),
+                        fontWeight = if (on) FontWeight.ExtraBold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.height(u(12)))
+            Text(if (kind == "info") "Voltar volta" else "▲▼ escolhe · OK confirma · Voltar volta", color = CDim, fontSize = ts(13))
+        }
+    }
+}
+
+@Composable
+private fun EpisodesPanel(
+    series: String, seasons: List<Iptv.Season>, si: Int, ei: Int, playing: String?, tick: Int, fromPlayer: Boolean, onTimeout: () -> Unit
+) {
+    LaunchedEffect(tick) {
+        if (fromPlayer) {
+            delay(15000)
+            onTimeout()
+        }
+    }
+    val eps = seasons.getOrNull(si)?.eps ?: emptyList()
+    val playIdx = eps.indexOfFirst { it.name == playing }
+    Box(Modifier.fillMaxSize()) {
+        val shape = RoundedCornerShape(u(18))
+        Column(
+            Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(u(24)).width(u(620))
+                .background(Color(0xF20E121B), shape).border(BorderStroke(u(1), Color(0x33FFFFFF)), shape).padding(u(26))
+        ) {
+            Text(series, color = CInk, fontSize = ts(28), fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(u(12)))
+            val ts0 = rememberLazyListState()
+            LaunchedEffect(si) { ts0.animateScrollToItem(max(0, si - 2)) }
+            LazyRow(state = ts0, horizontalArrangement = Arrangement.spacedBy(u(10))) {
+                itemsIndexed(seasons) { i, s ->
+                    val on = i == si
+                    Box(
+                        Modifier.background(if (on) Color.White else CCard, RoundedCornerShape(u(20)))
+                            .padding(horizontal = u(16), vertical = u(7))
+                    ) { Text("Temporada " + s.num, color = if (on) Color.Black else CLight, fontSize = ts(16), fontWeight = FontWeight.Bold) }
+                }
+            }
+            Spacer(Modifier.height(u(14)))
+            val st = rememberLazyListState()
+            LaunchedEffect(ei, si) { st.animateScrollToItem(max(0, ei - 3)) }
+            LazyColumn(Modifier.weight(1f), state = st, verticalArrangement = Arrangement.spacedBy(u(6))) {
+                itemsIndexed(eps) { i, e ->
+                    val on = i == ei
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(if (on) CCardHi else Color.Transparent, RoundedCornerShape(u(10)))
+                            .then(if (on) Modifier.border(BorderStroke(u(2), Color(0xFFCFE9FF)), RoundedCornerShape(u(10))) else Modifier)
+                            .padding(horizontal = u(14), vertical = u(9))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(e.label, color = CAccent, fontSize = ts(13), fontWeight = FontWeight.Bold)
+                            if (i == playIdx) Text("   ▶ assistindo", color = CLive, fontSize = ts(13), fontWeight = FontWeight.Bold)
+                            if (playIdx >= 0 && i == playIdx + 1) Text("   próximo", color = CWarm, fontSize = ts(13), fontWeight = FontWeight.Bold)
+                        }
+                        Text(e.name, color = CInk, fontSize = ts(18), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            Spacer(Modifier.height(u(10)))
+            val cur = eps.getOrNull(ei)
+            if (cur != null && cur.desc.isNotBlank()) {
+                Text(cur.desc, color = CLight, fontSize = ts(15), lineHeight = ts(21), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(u(8)))
+            }
+            Text("◀ ▶ temporada · ▲▼ episódio · OK assiste · Voltar fecha", color = CDim, fontSize = ts(13))
         }
     }
 }

@@ -12,7 +12,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 
-/** Tema estelar de piano, gerado por código (sem arquivo de áudio) e tocado em ciclo. */
+/** Tema espacial de piano e violino, original, gerado por código (sem arquivo de áudio) e tocado em ciclo. */
 object Sound {
     private const val SR = 22050
     private val vol = floatArrayOf(0f, 0.25f, 0.5f, 0.9f)
@@ -130,6 +130,34 @@ object Sound {
             val m = chord[seq[k] % chord.size] + (if (k % 4 == 3) 12 else 0)
             note(m, t0, if (k == 0) 0.30f else 0.22f, 2.8)
             if (rnd.nextFloat() < 0.22f) note(chord[5] + 12 + (if (rnd.nextBoolean()) 0 else 2), t0 + 0.27, 0.10f, 2.6)
+        }
+
+        // violino: notas longas, entrada lenta, vibrato suave (soma de harmônicos de corda friccionada)
+        fun violin(midi: Int, startSec: Double, amp: Float, durSec: Double) {
+            val f = 440.0 * 2.0.pow((midi - 69) / 12.0)
+            val n = (durSec * SR).toInt()
+            val s0 = (startSec * SR).toInt()
+            val att = 0.9
+            val rel = 1.2
+            var ph = 0.0
+            for (i in 0 until n) {
+                val t = i.toDouble() / SR
+                val env = min(1.0, t / att) * min(1.0, (durSec - t) / rel).coerceAtLeast(0.0)
+                val vib = 1.0 + 0.0045 * sin(2 * PI * 5.2 * t) * min(1.0, t / 1.5)
+                ph += 2.0 * PI * f * vib / SR
+                var v = 0.0
+                for (h in 1..7) v += sin(h * ph) / (h * 1.15)
+                val idx = (s0 + i) % total
+                buf[idx] += (v * env * amp).toFloat()
+            }
+        }
+
+        // linha lenta do violino sobre os acordes: duas notas longas por acorde
+        val line = intArrayOf(4, 3, 3, 2, 4, 5, 2, 3)
+        for (c in 0 until 8) {
+            val chord = chords[(c / 2) % 4]
+            val t0 = c * 4 * stepSec + 0.3
+            violin(chord[line[c] % chord.size] + 12, t0, 0.055f, 4 * stepSec + 1.0)
         }
 
         // eco suave

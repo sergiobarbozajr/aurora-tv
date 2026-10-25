@@ -391,4 +391,53 @@ object Iptv {
             main.post { cb(txt) }
         }
     }
+
+    class Season(val num: String, val eps: List<Card>)
+
+    /** Todas as temporadas e episódios de uma série (título, sinopse, duração e endereço de cada um). */
+    fun seriesInfo(extra: String, cb: (List<Season>) -> Unit) {
+        thread {
+            val out = ArrayList<Season>()
+            try {
+                val p = extra.split("|")
+                val base = p[0]
+                val user = p[1]
+                val pass = p[2]
+                val id = p[3]
+                val body = http("$base/player_api.php?username=${enc(user)}&password=${enc(pass)}&action=get_series_info&series_id=$id")
+                if (body != null) {
+                    val eps = JSONObject(body).optJSONObject("episodes")
+                    if (eps != null) {
+                        val keys = ArrayList<String>()
+                        val it = eps.keys()
+                        while (it.hasNext()) keys.add(it.next())
+                        keys.sortBy { k -> k.toIntOrNull() ?: 9999 }
+                        for (k in keys) {
+                            val arr = eps.optJSONArray(k) ?: continue
+                            val list = ArrayList<Card>()
+                            for (i in 0 until arr.length()) {
+                                val e = arr.getJSONObject(i)
+                                val num = e.optString("episode_num", (i + 1).toString())
+                                val ext = e.optString("container_extension", "mp4").ifBlank { "mp4" }
+                                val info = e.optJSONObject("info")
+                                val plot = info?.optString("plot", "") ?: ""
+                                val dur = info?.optString("duration", "") ?: ""
+                                val img = info?.optString("movie_image", "") ?: ""
+                                var title = e.optString("title", "").ifBlank { "Episódio $num" }
+                                if (title.length > 60) title = title.take(60) + "…"
+                                val url = "$base/series/${enc(user)}/${enc(pass)}/${e.optString("id")}.$ext"
+                                list.add(
+                                    mkCard(title, "T$k · E$num" + if (dur.isNotBlank()) " · $dur" else "", "vod", idxOf(title + k + num), url, "", emptyList(), plot)
+                                        .copy(img = img)
+                                )
+                            }
+                            if (list.isNotEmpty()) out.add(Season(k, list))
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+            }
+            main.post { cb(out) }
+        }
+    }
 }

@@ -93,6 +93,8 @@ val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080
 val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema estelar · baixo", "Tema estelar · médio", "Tema estelar · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
+val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
+val SCREEN_NAMES = listOf("Original", "Preencher", "Zoom", "16:9", "4:3", "Personalizado")
 
 class SettingItem(val name: String, val edit: String?)
 
@@ -102,6 +104,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Clima e cidade", "city"),
     SettingItem("Som do aplicativo", "sound"),
     SettingItem("Meteoro ao apertar OK", "meteor"),
+    SettingItem("Canais fora do ar", "hideoff"),
     SettingItem("Rede e internet", null),
     SettingItem("Guia de imagem (TCL A400M)", null),
     SettingItem("Teste de tela", null),
@@ -140,6 +143,28 @@ object Store {
     var meteor: Int
         get() = int("meteor")
         set(v) = putInt("meteor", v)
+
+    var health: String
+        get() = sp.getString("health", "") ?: ""
+        set(v) = sp.edit().putString("health", v).apply()
+    var screenMode: Int
+        get() = int("screen_mode")
+        set(v) = putInt("screen_mode", v)
+    var hideOffline: Int
+        get() = int("hide_off")
+        set(v) = putInt("hide_off", v)
+
+    /** Ajuste personalizado de tela: "largura,altura,x,y" por canal/conteúdo ou "global". */
+    fun screenAdj(key: String): IntArray? {
+        val raw = sp.getString("adj_" + key, null) ?: return null
+        val p = raw.split(",").mapNotNull { it.toIntOrNull() }
+        return if (p.size == 4) p.toIntArray() else null
+    }
+
+    fun saveScreenAdj(key: String, v: IntArray?) {
+        if (v == null) sp.edit().remove("adj_" + key).apply()
+        else sp.edit().putString("adj_" + key, v.joinToString(",")).apply()
+    }
 
     var keymap: String
         get() = sp.getString("keymap", "") ?: ""
