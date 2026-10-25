@@ -130,6 +130,28 @@ class MainActivity : ComponentActivity() {
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
         val catalog = parseCatalog(json)
+        try {
+            window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_HDR
+        } catch (e: Throwable) {
+        }
+        try {
+            @Suppress("DEPRECATION")
+            val modes = windowManager.defaultDisplay.supportedModes
+            var best: android.view.Display.Mode? = null
+            for (m in modes) {
+                val b = best
+                if (b == null ||
+                    m.physicalWidth * m.physicalHeight > b.physicalWidth * b.physicalHeight ||
+                    (m.physicalWidth * m.physicalHeight == b.physicalWidth * b.physicalHeight && m.refreshRate > b.refreshRate)
+                ) best = m
+            }
+            if (best != null) {
+                val lp = window.attributes
+                lp.preferredDisplayModeId = best.modeId
+                window.attributes = lp
+            }
+        } catch (e: Throwable) {
+        }
         speech = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
             var txt: String? = null
             if (r.resultCode == RESULT_OK) {
@@ -331,6 +353,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val l = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 noSignal = true
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                applyEnhance(player, enhance, isHdrFormat(player))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -564,7 +590,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         try {
             player.setMediaItem(MediaItem.fromUri(url))
             applyQuality(player, quality)
-            applyEnhance(player, enhance)
+            applyEnhance(player, enhance, true)
             player.prepare()
             player.play()
         } catch (e: Exception) {
@@ -802,7 +828,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "enh" -> {
                 enhance = (enhance + d + ENHANCE_NAMES.size) % ENHANCE_NAMES.size
                 Store.enhance = enhance
-                applyEnhance(player, enhance)
+                applyEnhance(player, enhance, isHdrFormat(player))
             }
             "city" -> {
                 cityIdx = (cityIdx + d + catalog.cities.size) % catalog.cities.size
@@ -1475,10 +1501,11 @@ private fun settingBody(
     return when (item.name) {
         "Qualidade de vídeo" -> {
             val dm = context.resources.displayMetrics
-            tip + nl + nl + "Limita a resolução pedida nos canais ao vivo. Automática usa a melhor possível; Economia poupa dados." + nl + nl +
-                "Saída atual da tela: ${dm.widthPixels} x ${dm.heightPixels}"
+            tip + nl + nl + "Máxima (recomendado) usa sempre a maior resolução que o canal oferece e pede à TV o maior modo de tela. As outras opções limitam o teto." + nl + nl +
+                "Saída atual da tela: ${dm.widthPixels} x ${dm.heightPixels}" + nl + nl +
+                "Fora do AuroraTV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado. O item “Abrir ajustes do Google TV” leva até lá."
         }
-        "Realce de imagem" -> tip + nl + nl + "Cor, contraste e luz no vídeo dos canais que tocam aqui. Ligado, desativa o HDR10 nativo naquele vídeo. Para filmes HDR, deixe Desligado."
+        "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
         "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: um tema estelar de piano, calmo, em ciclo. Pausa sozinha quando um vídeo começa."
         "Meteoro ao apertar OK" -> tip + nl + nl + "Mostra um meteoro azul passando no alto da tela quando você aperta OK para entrar numa seção. A animação de abertura não muda."

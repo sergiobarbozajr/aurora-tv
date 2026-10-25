@@ -88,8 +88,8 @@ fun streamRows(): List<RowData> {
 
 // ---------- Opções de configuração ----------
 
-val QUALITY_NAMES = listOf("Automática", "4K (2160p)", "Full HD (1080p)", "HD (720p)", "Economia (480p)")
-val ENHANCE_NAMES = listOf("Desligado", "Suave", "Forte")
+val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080p)", "HD (720p)", "Economia (480p)")
+val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema estelar · baixo", "Tema estelar · médio", "Tema estelar · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
 

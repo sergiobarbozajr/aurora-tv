@@ -54,6 +54,7 @@ fun openDisplaySettings(context: android.content.Context) {
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 fun applyQuality(player: ExoPlayer, idx: Int) {
     try {
         val b = player.trackSelectionParameters.buildUpon()
@@ -62,25 +63,39 @@ fun applyQuality(player: ExoPlayer, idx: Int) {
             2 -> b.setMaxVideoSize(1920, 1080)
             3 -> b.setMaxVideoSize(1280, 720)
             4 -> b.setMaxVideoSize(854, 480)
-            else -> b.clearVideoSizeConstraints()
+            else -> {
+                b.clearVideoSizeConstraints()
+                b.setForceHighestSupportedBitrate(true)
+            }
         }
         player.trackSelectionParameters = b.build()
     } catch (e: Throwable) {}
 }
 
+fun isHdrFormat(player: ExoPlayer): Boolean {
+    val t = player.videoFormat?.colorInfo?.colorTransfer
+    return t == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || t == androidx.media3.common.C.COLOR_TRANSFER_HLG
+}
+
+/** Realce só em vídeo SDR. Em vídeo HDR10/HLG o realce fica desligado para o HDR passar intacto até a TV. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-fun applyEnhance(player: ExoPlayer, level: Int) {
+fun applyEnhance(player: ExoPlayer, level: Int, hdr: Boolean) {
     try {
-        val fx: List<androidx.media3.common.Effect> = when (level) {
+        val fx: List<androidx.media3.common.Effect> = if (hdr) emptyList() else when (level) {
             1 -> listOf(
-                androidx.media3.effect.Brightness(0.05f),
-                androidx.media3.effect.Contrast(0.12f),
-                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(10f).build()
+                androidx.media3.effect.Brightness(0.03f),
+                androidx.media3.effect.Contrast(0.08f),
+                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(6f).build()
             )
             2 -> listOf(
+                androidx.media3.effect.Brightness(0.06f),
+                androidx.media3.effect.Contrast(0.16f),
+                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(14f).build()
+            )
+            3 -> listOf(
                 androidx.media3.effect.Brightness(0.10f),
-                androidx.media3.effect.Contrast(0.22f),
-                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(22f).build()
+                androidx.media3.effect.Contrast(0.26f),
+                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(24f).build()
             )
             else -> emptyList()
         }
