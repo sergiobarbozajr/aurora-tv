@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,9 +29,23 @@ jobs:
       - name: Compilar o APK (debug)
         run: gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Publicar o APK
+      - name: Ler a versao do app
+        id: ver
+        run: |
+          V=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar o APK (baixavel no GitHub)
         uses: actions/upload-artifact@v4
         with:
           name: AuroraTV-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publicar versao para a atualizacao dentro do app
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.name }}
+          name: AuroraTV ${{ steps.ver.outputs.name }}
+          files: app/build/outputs/apk/debug/app-debug.apk

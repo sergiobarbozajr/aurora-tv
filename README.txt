@@ -1,4 +1,4 @@
-AuroraTV - Android TV (TCL A400M) - versao 0.3
+AuroraTV - Android TV (TCL A400M) - versao 0.7
 
 === GERAR O APK PELO GITHUB (sem Android Studio) ===
 1. No GitHub, crie um repositorio novo (pode ser privado). Nome: aurora-tv.

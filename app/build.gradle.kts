@@ -11,8 +11,17 @@ android {
         applicationId = "com.auroratv.tv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.6"
+        versionCode = 7
+        versionName = "0.7"
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
