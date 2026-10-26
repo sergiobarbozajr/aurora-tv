@@ -2480,7 +2480,7 @@ private fun PlayerScreen(
                             Box(
                                 Modifier.clip(RoundedCornerShape(u(6))).background(Brush.horizontalGradient(listOf(Color(0xFF7B5CFF), Color(0xFF3FA9FF))))
                                     .padding(horizontal = u(9), vertical = u(1))
-                            ) { Text("IA · " + pb.aiLabel, color = Color.White, fontSize = ts(13), fontWeight = FontWeight.Bold) }
+                            ) { Text(if (pb.aiLabel.startsWith("IA")) pb.aiLabel else "IA · " + pb.aiLabel, color = Color.White, fontSize = ts(13), fontWeight = FontWeight.Bold) }
                         }
                         if (dyn.isNotEmpty()) {
                             Spacer(Modifier.width(u(12)))
