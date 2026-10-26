@@ -144,6 +144,41 @@ object Iptv {
 
     fun load(url: String, user: String, pass: String, cb: (IptvResult) -> Unit) {
         thread {
+            val res = loadSync(url, user, pass)
+            main.post { cb(res) }
+        }
+    }
+
+    /** Carrega todas as contas salvas (até 5) e junta o conteúdo. Com mais de uma conta, as fileiras levam o número da conta. */
+    fun loadAll(cb: (IptvResult) -> Unit) {
+        thread {
+            val accs = (0 until 5).map { Store.acc(it) }.withIndex().filter { it.value.first.isNotBlank() }
+            val parts = ArrayList<Pair<Int, IptvResult>>()
+            var lastErr: String? = "vazio"
+            for (a in accs) {
+                val r = loadSync(a.value.first, a.value.second, a.value.third)
+                if (r.total > 0) parts.add(Pair(a.index, r)) else lastErr = r.error
+            }
+            val res = if (parts.isEmpty()) IptvResult(emptyMap(), 0, lastErr)
+            else if (parts.size == 1) parts[0].second
+            else {
+                val m = LinkedHashMap<String, MutableList<RowData>>()
+                var total = 0
+                for ((k, r) in parts) {
+                    total += r.total
+                    for ((sec, rows) in r.rows) {
+                        val l = m.getOrPut(sec) { ArrayList() }
+                        for (row in rows) l.add(RowData("Conta ${k + 1} · " + row.title, row.cards))
+                    }
+                }
+                IptvResult(m, total, null)
+            }
+            main.post { cb(res) }
+        }
+    }
+
+    private fun loadSync(url: String, user: String, pass: String): IptvResult {
+        run {
             val res = try {
                 val u = url.trim()
                 var us = user.trim()
@@ -166,7 +201,7 @@ object Iptv {
             } catch (e: Throwable) {
                 IptvResult(emptyMap(), 0, "erro")
             }
-            main.post { cb(res) }
+            return res
         }
     }
 

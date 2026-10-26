@@ -21,8 +21,89 @@ object Sound {
     private var building = false
     private var level = 0
     private var paused = false
+    private var appCtx: android.content.Context? = null
+    private var fileUri: String? = null
+    private var mp: android.media.MediaPlayer? = null
+    private var clickTrack: AudioTrack? = null
+
+    /** Sons das teclas (toque curto, como teclado de celular). */
+    @Volatile
+    var keysOn = true
+
+    fun init(c: android.content.Context) {
+        appCtx = c.applicationContext
+    }
+
+    /** Música do aparelho: um arquivo de áudio do usuário (pendrive ou memória). null = tema do app. */
+    fun useFile(uri: String?) {
+        fileUri = uri
+        try { mp?.release() } catch (e: Exception) {}
+        mp = null
+        apply(level)
+    }
+
+    private fun applyFile(l: Int) {
+        try { track?.pause() } catch (e: Exception) {}
+        val ctx = appCtx ?: return
+        if (l == 0) {
+            try { mp?.pause() } catch (e: Exception) {}
+            return
+        }
+        try {
+            var m = mp
+            if (m == null) {
+                m = android.media.MediaPlayer()
+                m.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                m.setDataSource(ctx, android.net.Uri.parse(fileUri))
+                m.isLooping = true
+                m.prepare()
+                mp = m
+            }
+            m.setVolume(vol[l], vol[l])
+            if (!paused) m.start()
+        } catch (e: Exception) {
+            try { mp?.release() } catch (e2: Exception) {}
+            mp = null
+        }
+    }
+
+    /** Toque curto de tecla: dois senos rápidos com queda, bem baixo. */
+    fun click() {
+        if (!keysOn) return
+        try {
+            var t = clickTrack
+            if (t == null) {
+                val n = (0.035 * SR).toInt()
+                val pcm = ShortArray(n)
+                for (i in 0 until n) {
+                    val x = i.toDouble() / SR
+                    val env = exp(-x * 140.0)
+                    val v = (sin(2 * PI * 1750.0 * x) * 0.6 + sin(2 * PI * 2600.0 * x) * 0.25) * env * 0.35
+                    pcm[i] = (v * 32767).toInt().toShort()
+                }
+                t = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                    .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setBufferSizeInBytes(n * 2)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+                t.write(pcm, 0, n)
+                clickTrack = t
+            }
+            t.stop()
+            t.reloadStaticData()
+            t.play()
+        } catch (e: Throwable) {
+        }
+    }
 
     fun apply(l: Int) {
+        if (fileUri != null) {
+            level = l
+            applyFile(l)
+            return
+        }
+        try { mp?.pause() } catch (e: Exception) {}
         synchronized(lock) {
             level = l
             if (l == 0) {
@@ -76,6 +157,16 @@ object Sound {
 
     /** Pausa durante vídeos e quando o app sai de cena. */
     fun setPaused(p: Boolean) {
+        try {
+            val m = mp
+            if (m != null) {
+                if (p) m.pause() else if (level > 0 && fileUri != null) m.start()
+            }
+        } catch (e: Exception) {}
+        if (fileUri != null) {
+            paused = p
+            return
+        }
         synchronized(lock) {
             paused = p
             val t = track ?: return
@@ -86,6 +177,10 @@ object Sound {
     }
 
     fun release() {
+        try { mp?.release() } catch (e: Exception) {}
+        mp = null
+        try { clickTrack?.release() } catch (e: Exception) {}
+        clickTrack = null
         synchronized(lock) {
             try { track?.stop() } catch (e: Exception) {}
             try { track?.release() } catch (e: Exception) {}

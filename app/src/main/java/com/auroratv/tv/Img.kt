@@ -104,11 +104,20 @@ object Img {
 @Composable
 fun rememberCardImage(c: Card): ImageBitmap? {
     val context = LocalContext.current
-    val key = if (c.kind == "app") "app:" + c.name else c.img
+    val wiki = c.img.isEmpty() && (c.kind == "vod" || c.kind == "series")
+    val key = if (c.kind == "app") "app:" + c.name else if (wiki) "wiki:" + c.name else c.img
     var b by remember(key) { mutableStateOf(if (key.isEmpty()) null else Img.peek(key)) }
     LaunchedEffect(key) {
         if (b == null && key.isNotEmpty()) {
-            b = if (c.kind == "app") Img.app(context, c).first else Img.web(c.img)
+            b = when {
+                c.kind == "app" -> Img.app(context, c).first
+                wiki -> {
+                    // sem capa na lista: procura pelo nome na Wikipédia
+                    val u = withContext(Dispatchers.IO) { Wiki.cover(c.name, c.kind == "series") }
+                    if (u.isNotEmpty()) Img.web(u) else null
+                }
+                else -> Img.web(c.img)
+            }
         }
     }
     return b

@@ -105,12 +105,12 @@ import kotlin.math.min
 private val CInk = Color(0xFFF2F5FA)
 private val CLight = Color(0xFFC3CDDE)
 private val CDim = Color(0xFF7E8AA2)
-private val CAccent = Color(0xFF6CC6FF)
+private val CAccent: Color get() = ThemeState.pal.accent
 private val CWarm = Color(0xFFFFD27A)
-private val CCard = Color(0xFF1A1F2C)
-private val CCardHi = Color(0xFF232A3B)
+private val CCard: Color get() = ThemeState.pal.card
+private val CCardHi: Color get() = ThemeState.pal.cardHi
 private val CLive = Color(0xFFFF6B81)
-private val CPanel = Color(0xFF161A24)
+private val CPanel: Color get() = ThemeState.pal.panel
 
 private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES }
 
@@ -141,6 +141,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        Sound.init(this)
+        Sound.keysOn = Store.keySound == 1
+        if (Store.musicUri.isNotBlank()) Sound.useFile(Store.musicUri)
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
         val catalog = parseCatalog(json)
@@ -176,6 +179,34 @@ class MainActivity : ComponentActivity() {
             cb?.invoke(txt)
         }
         setContent { AuroraApp(catalog, this) }
+    }
+
+    /** Pede permissão para ler músicas do aparelho (pendrive ou memória). */
+    fun ensureAudioPerm(): Boolean {
+        val perm = if (Build.VERSION.SDK_INT >= 33) "android.permission.READ_MEDIA_AUDIO" else android.Manifest.permission.READ_EXTERNAL_STORAGE
+        if (checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) return true
+        try { requestPermissions(arrayOf(perm), 41) } catch (e: Exception) {}
+        return false
+    }
+
+    /** Lista as músicas do aparelho: nome e endereço. */
+    fun scanAudio(): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        try {
+            val uri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            contentResolver.query(
+                uri, arrayOf(android.provider.MediaStore.Audio.Media._ID, android.provider.MediaStore.Audio.Media.DISPLAY_NAME),
+                null, null, android.provider.MediaStore.Audio.Media.DISPLAY_NAME + " ASC"
+            )?.use { c ->
+                while (c.moveToNext() && out.size < 60) {
+                    val id = c.getLong(0)
+                    val name = (c.getString(1) ?: "música").substringBeforeLast(".")
+                    out.add(Pair(name, android.content.ContentUris.withAppendedId(uri, id).toString()))
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return out
     }
 
     override fun onPause() {
@@ -241,7 +272,9 @@ private fun buildFree(catalog: Catalog, extra: List<Item>): FreeData {
     for ((i, item) in extra.withIndex()) {
         if (item.url != null) add(net, mkCard(item.title, "Internet", "stream", i + 3, item.url, "", emptyList(), item.desc))
     }
-    return FreeData(ant, net, intl, films, anime, news, docs)
+    // logos dos canais vindos das listas públicas (Globo, SBT, Band…)
+    fun lg(l: List<Card>) = l.map { if (it.img.isEmpty()) it.copy(img = Logos.find(it.name)) else it }
+    return FreeData(lg(ant), lg(net), lg(intl), films, lg(anime), lg(news), lg(docs))
 }
 
 private val KEYS = listOf(
@@ -357,7 +390,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
     var fPass by remember { mutableStateOf(Store.iptvPass) }
-    var iptvSaved by remember { mutableStateOf(Store.iptvUrl.isNotBlank()) }
+    var iptvSaved by remember { mutableStateOf(Store.anyAcc()) }
+    var iptvSlot by remember { mutableStateOf(0) }
+    var keysLvl by remember { mutableStateOf(Store.keySound) }
+    var musicFiles by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var iptvRows by remember { mutableStateOf<Map<String, List<RowData>>>(emptyMap()) }
     var iptvTotal by remember { mutableStateOf(0) }
     var iptvBusy by remember { mutableStateOf(false) }
@@ -395,8 +431,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var epTick by remember { mutableStateOf(0) }
     var hideOff by remember { mutableStateOf(Store.hideOffline) }
     var themeIdx by remember { mutableStateOf(Store.theme.coerceIn(0, THEME_NAMES.size - 1)) }
+    LaunchedEffect(Unit) { ThemeState.set(themeIdx) }
     var bassLvl by remember { mutableStateOf(Store.bass.coerceIn(0, BASS_NAMES.size - 1)) }
     var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
+    var searchSec by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
     var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
 
@@ -420,10 +458,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
         pb.onAuthExpired = {
             val now = System.currentTimeMillis()
-            if (Store.iptvUrl.isNotBlank() && now - lastRelogin > 60000) {
+            if (Store.anyAcc() && now - lastRelogin > 60000) {
                 lastRelogin = now
                 // login silencioso: refaz a sessão e atualiza a lista sem pedir nada
-                Iptv.load(Store.iptvUrl, Store.iptvUser, Store.iptvPass) { r ->
+                Iptv.loadAll { r ->
                     if (r.total > 0) {
                         iptvRows = r.rows
                         iptvTotal = r.total
@@ -478,7 +516,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     LaunchedEffect(Unit) {
         if (iptvSaved) {
             iptvBusy = true
-            Iptv.load(Store.iptvUrl, Store.iptvUser, Store.iptvPass) { r ->
+            Iptv.loadAll { r ->
                 iptvBusy = false
                 if (r.total > 0) {
                     iptvRows = r.rows
@@ -489,7 +527,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
     // ---------- dados ----------
-    val free = remember(catalog, m3uExtra) { buildFree(catalog, m3uExtra) }
+    var logosVer by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { Logos.load { logosVer++ } }
+    val free = remember(catalog, m3uExtra, logosVer) { buildFree(catalog, m3uExtra) }
     val allCards = remember(free, iptvVersion) {
         val l = ArrayList<Card>()
         l.addAll(free.antenna); l.addAll(free.internet); l.addAll(free.intl); l.addAll(free.films)
@@ -506,11 +546,32 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     LaunchedEffect(allCards) {
         searchIndex = withContext(Dispatchers.Default) { allCards.map { Iptv.norm(it.name) to it } }
+        // de que aba cada título vem, para separar os resultados por tipo
+        val sec = HashMap<String, String>()
+        for ((name, rs) in iptvRows) for (r in rs) for (c in r.cards) sec.putIfAbsent(c.name, name)
+        for (c in free.antenna + free.internet + free.intl) sec.putIfAbsent(c.name, "TV ao vivo")
+        for (c in free.news) sec.putIfAbsent(c.name, "Notícias")
+        for (c in free.films) sec.putIfAbsent(c.name, "Filmes")
+        for (c in free.anime) sec.putIfAbsent(c.name, "Séries")
+        for (c in free.docs) sec.putIfAbsent(c.name, "Documentários")
+        for (r in streamRows()) for (c in r.cards) sec.putIfAbsent(c.name, "Streams")
+        searchSec = sec
     }
     LaunchedEffect(query, searchIndex) {
         val q = Iptv.norm(query.trim())
         if (q.isEmpty()) {
-            searchRows = listOf(RowData("Sugestões", (free.intl + free.internet + free.anime).take(10)))
+            // sugestões separadas por tipo, com imagem
+            val sug = ArrayList<RowData>()
+            val ch = (free.antenna + free.internet + free.intl).filter { it.img.isNotEmpty() }.take(12)
+            if (ch.isNotEmpty()) sug.add(RowData("Sugestões · Canais", ch))
+            val iv = iptvRows["TV ao vivo"].orEmpty().flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(12)
+            if (iv.isNotEmpty()) sug.add(RowData("Sugestões · TV ao vivo", iv))
+            for (secName in listOf("Filmes", "Séries", "Novelas", "Documentários", "Esporte")) {
+                val l = iptvRows[secName].orEmpty().flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(12)
+                if (l.isNotEmpty()) sug.add(RowData("Sugestões · $secName", l))
+            }
+            if (sug.isEmpty()) sug.add(RowData("Sugestões", (free.antenna + free.intl + free.internet + free.anime).take(12)))
+            searchRows = sug
             return@LaunchedEffect
         }
         delay(120) // espera a próxima letra; a busca roda fora da tela
@@ -525,7 +586,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             starts + other
         }
         searchRows = if (res.isEmpty()) listOf(RowData("Nada encontrado para “$query”", listOf(mkCard("Tente outra palavra", "", "empty", 0))))
-        else listOf(RowData("Resultados para “$query” (${res.size})", res))
+        else {
+            val secMap = searchSec
+            val order = listOf("TV ao vivo", "Filmes", "Séries", "Novelas", "Documentários", "Esporte", "Notícias", "Streams")
+            val groups = res.groupBy { secMap[it.name] ?: "Outros" }
+            (order + "Outros").mapNotNull { g -> groups[g]?.let { RowData("$g · “$query” (${it.size})", it) } }
+        }
     }
     LaunchedEffect(Unit) {
         delay(30000)
@@ -840,22 +906,26 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         iptvBusy = true
         showToast("Entrando e carregando a sua lista…")
         Iptv.load(fUrl, fUser, fPass) { r ->
-            iptvBusy = false
             if (r.total > 0) {
-                Store.iptvUrl = fUrl
-                Store.iptvUser = fUser
-                Store.iptvPass = fPass
-                iptvRows = r.rows
-                iptvTotal = r.total
+                Store.setAcc(iptvSlot, fUrl, fUser, fPass)
                 iptvSaved = true
-                iptvVersion++
+                // junta esta conta com as outras já salvas
+                Iptv.loadAll { all ->
+                    iptvBusy = false
+                    if (all.total > 0) {
+                        iptvRows = all.rows
+                        iptvTotal = all.total
+                        iptvVersion++
+                    }
+                }
                 zone = Z.NAV
                 nav = 0
                 row = 0
                 col = 0
                 iptvFirst = false
-                showToast("Conta conectada: ${r.total} itens separados em Filmes, Séries, Novelas e outros.")
+                showToast("Conta ${iptvSlot + 1} conectada: ${r.total} itens separados em Filmes, Séries, Novelas e outros.")
             } else {
+                iptvBusy = false
                 showToast(
                     when (r.error) {
                         "login" -> "Usuário ou senha não aceitos."
@@ -868,18 +938,21 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun disconnect() {
-        Store.iptvUrl = ""
-        Store.iptvUser = ""
-        Store.iptvPass = ""
+        Store.setAcc(iptvSlot, "", "", "")
         fUrl = ""
         fUser = ""
         fPass = ""
-        iptvSaved = false
+        iptvSaved = Store.anyAcc()
         iptvRows = emptyMap()
         iptvTotal = 0
         iptvVersion++
-        loginField = 0
-        showToast("Conta removida deste aparelho.")
+        loginField = 1
+        showToast("Conta ${iptvSlot + 1} removida deste aparelho.")
+        if (iptvSaved) Iptv.loadAll { all ->
+            iptvRows = all.rows
+            iptvTotal = all.total
+            iptvVersion++
+        }
     }
 
     fun updAction() {
@@ -926,6 +999,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         "hideoff" -> HIDEOFF_NAMES[hideOff]
         "theme" -> THEME_NAMES[themeIdx]
         "bass" -> BASS_NAMES[bassLvl]
+        "keys" -> KEYS_NAMES[keysLvl]
+        "musicfile" -> if (Store.musicUri.isBlank()) "Tema espacial do app" else Store.musicName.ifBlank { "música do aparelho" }
         else -> METEOR_NAMES[meteorOpt]
     }
 
@@ -950,6 +1025,27 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 Store.sound = soundLvl
                 Sound.apply(soundLvl)
             }
+            "keys" -> {
+                keysLvl = 1 - keysLvl
+                Store.keySound = keysLvl
+                Sound.keysOn = keysLvl == 1
+                Sound.click()
+            }
+            "musicfile" -> {
+                // 0 = tema do app; 1..n = músicas encontradas no aparelho
+                val list = musicFiles
+                val cur = list.indexOfFirst { it.second == Store.musicUri } + 1
+                val nx = ((cur + d) % (list.size + 1) + list.size + 1) % (list.size + 1)
+                if (nx == 0) {
+                    Store.musicUri = ""
+                    Store.musicName = ""
+                    Sound.useFile(null)
+                } else {
+                    Store.musicUri = list[nx - 1].second
+                    Store.musicName = list[nx - 1].first
+                    Sound.useFile(Store.musicUri)
+                }
+            }
             "bass" -> {
                 bassLvl = (bassLvl + d + BASS_NAMES.size) % BASS_NAMES.size
                 Store.bass = bassLvl
@@ -958,6 +1054,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "theme" -> {
                 themeIdx = (themeIdx + d + THEME_NAMES.size) % THEME_NAMES.size
                 Store.theme = themeIdx
+                ThemeState.set(themeIdx)
             }
             "hideoff" -> {
                 hideOff = (hideOff + d + HIDEOFF_NAMES.size) % HIDEOFF_NAMES.size
@@ -1066,7 +1163,13 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "up" -> sidx = max(0, sidx - 1)
             "down" -> sidx = min(SETTING_ITEMS.size - 1, sidx + 1)
             "ok" -> {
-                if (ek != null) editing = true
+                if (ek == "musicfile") {
+                    if (activity.ensureAudioPerm()) {
+                        musicFiles = activity.scanAudio()
+                        editing = true
+                        if (musicFiles.isEmpty()) showToast("Nenhuma música encontrada. Coloque arquivos MP3 num pendrive ou na memória da TV.")
+                    } else showToast("Permita o acesso às músicas e aperte OK de novo.")
+                } else if (ek != null) editing = true
                 else when (item.name) {
                     "Rede e internet" -> {
                         speedText = "medindo…"
@@ -1076,14 +1179,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         testIdx = 0
                         zone = Z.TEST
                     }
-                    "Abrir ajustes do Google TV" -> openDisplaySettings(context)
                     "Mapear controle remoto" -> {
                         customKeys = emptyMap()
                         keymapStep = 0
                         keymapLast = ""
                         zone = Z.KEYMAP
                     }
-                    "Bloquear anúncios (DNS)" -> openNetworkSettings(context)
                     "Conta IPTV" -> {
                         zone = Z.IPTV
                         loginField = 0
@@ -1344,6 +1445,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun act(a: String) {
+        if (zone != Z.PLAYER) Sound.click()
         when (zone) {
             Z.INTRO -> finishIntro()
             Z.PLAYER -> playerAct(a)
@@ -1373,7 +1475,15 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 "left" -> testIdx = (testIdx + TEST_COLORS.size - 1) % TEST_COLORS.size
             }
             Z.IPTV -> {
-                val n = if (iptvSaved) 5 else 4
+                val slotSaved = Store.acc(iptvSlot).first.isNotBlank()
+                val n = if (slotSaved) 6 else 5
+                fun loadSlot(k: Int) {
+                    iptvSlot = k
+                    val t = Store.acc(k)
+                    fUrl = t.first
+                    fUser = t.second
+                    fPass = t.third
+                }
                 when (a) {
                     "back", "home" -> {
                         zone = if (iptvFirst) Z.NAV else Z.CONTENT
@@ -1381,11 +1491,14 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     "up" -> loginField = (loginField + n - 1) % n
                     "down" -> loginField = (loginField + 1) % n
+                    "left" -> if (loginField == 0) loadSlot((iptvSlot + 4) % 5)
+                    "right" -> if (loginField == 0) loadSlot((iptvSlot + 1) % 5)
                     "ok" -> when (loginField) {
-                        0 -> askText("Endereço (URL)", fUrl, false) { fUrl = it.trim() }
-                        1 -> askText("Usuário", fUser, false) { fUser = it.trim() }
-                        2 -> askText("Senha", fPass, true) { fPass = it.trim() }
-                        3 -> doLogin()
+                        0 -> loadSlot((iptvSlot + 1) % 5)
+                        1 -> askText("Endereço (URL)", fUrl, false) { fUrl = it.trim() }
+                        2 -> askText("Usuário", fUser, false) { fUser = it.trim() }
+                        3 -> askText("Senha", fPass, true) { fPass = it.trim() }
+                        4 -> doLogin()
                         else -> disconnect()
                     }
                 }
@@ -1411,7 +1524,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         zone = Z.EXIT
                         exitSel = 0
                     } else {
-                        if (meteorOpt == 0) engine.spawn("enter")
                         zone = Z.CONTENT
                         row = 0
                         col = 0
@@ -1498,7 +1610,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     Sidebar(nav, zone == Z.NAV)
                     if (zone == Z.IPTV) {
-                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, iptvSaved, iptvBusy)
+                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot)
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
@@ -1523,7 +1635,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
         }
-        if (showMain && zone != Z.INTRO) MeteorLayer(tick, engine, meteorOpt == 0)
+        if (showMain && zone != Z.INTRO) MeteorLayer(tick, engine, true)
         if (zone == Z.INTRO) IntroAnim { finishIntro() }
     }
 }
@@ -1544,7 +1656,7 @@ private fun Sidebar(nav: Int, focused: Boolean) {
     Box(
         Modifier.padding(start = u(22), top = u(22), bottom = u(22)).width(u(258)).fillMaxHeight()
             .graphicsLayer { translationY = fy * density }
-            .clip(shape).background(Color(0x6B0E121C)).border(BorderStroke(u(1), Color(0x2EFFFFFF)), shape)
+            .clip(shape).background(ThemeState.pal.glass).border(BorderStroke(u(1), Color(0x2EFFFFFF)), shape)
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = u(14), vertical = u(24))) {
             Box(Modifier.padding(start = u(10), bottom = u(8))) { LogoSmall(fontPx) }
@@ -1580,7 +1692,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
-    val art = if (c.kind == "app" || c.img.isNotEmpty()) rememberCardImage(c) else null
+    val art = if (c.kind == "app" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
     val glossy = c.kind == "app"
     // cartões de stream: efeito 3D (sombra, relevo e brilho); com foco crescem um pouco
     var m = Modifier.width(w).height(u(122))
@@ -1601,7 +1713,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     if (focused) m = m.border(BorderStroke(u(2), Color(0xFFCFE9FF)), shape)
     else if (c.kind == "empty") m = m.border(BorderStroke(u(1), Color(0xFF262C3B)), shape)
     else if (glossy) m = m.border(BorderStroke(u(1), Brush.verticalGradient(listOf(Color(0x99FFFFFF), Color(0x14FFFFFF)))), shape)
-    val cover = art != null && (c.kind == "vod" || c.kind == "series")
+    val cover = art != null && (c.kind == "vod" || c.kind == "series" || c.kind == "news")
     val banner = art != null && c.kind == "app" && !Img.isIcon(c)
     Box(m.clip(shape)) {
         if (c.kind == "login") {
@@ -1616,12 +1728,20 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
         } else if (cover && art != null) {
             // capa do filme/série enquadrada no cartão inteiro, nome sobre um degradê
             androidx.compose.foundation.Image(art, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color(0xE6000000))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color(0xE6000000))))
+            if (c.kind == "news") {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(u(10)).clip(RoundedCornerShape(u(5)))
+                        .background(Color(0xD1FFFFFF)).padding(horizontal = u(7), vertical = u(2))
+                ) { Text(c.label, color = Color(0xFF0A1018), fontSize = ts(11), fontWeight = FontWeight.Bold, maxLines = 1) }
+            }
             Text(
-                c.name, color = CInk, fontSize = ts(15), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                c.name, color = CInk, fontSize = ts(if (c.kind == "news") 14 else 15), fontWeight = FontWeight.Bold,
+                maxLines = if (c.kind == "news") 2 else 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(u(12))
             )
         } else {
+            if (c.kind == "quote") Coin(c.name, Modifier.align(Alignment.CenterEnd).padding(end = u(14), bottom = u(18)), u(56))
             if (art != null) {
                 // logo do canal (ou ícone do app) ocupando o espaço do cartão, sem cortar
                 androidx.compose.foundation.Image(
@@ -1717,6 +1837,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                 Brush.horizontalGradient(0.08f to Color(0xFF0A0C10), 0.6f to Color(0x330A0C10), 1f to Color.Transparent)
             )
         )
+        if (c != null && c.kind == "quote") Coin(c.name, Modifier.align(Alignment.CenterEnd).padding(end = u(70)), u(170))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0xFF0A0C10))))
         Column(Modifier.align(Alignment.BottomStart).padding(start = u(34), bottom = u(30), end = if (art != null) u(200) else u(34))) {
             val tag = when {
@@ -1898,11 +2019,13 @@ private fun settingBody(
             val dm = context.resources.displayMetrics
             tip + nl + nl + "Máxima (recomendado) usa sempre a maior resolução que o canal oferece e pede à TV o maior modo de tela. As outras opções limitam o teto." + nl + nl +
                 "Saída atual da tela: ${dm.widthPixels} x ${dm.heightPixels}" + nl + nl +
-                "Fora do AuroraTV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado. O item “Abrir ajustes do Google TV” leva até lá."
+                "Fora do AuroraTV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado."
         }
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
         "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Sons das teclas" -> tip + nl + nl + "Um toque curto e baixo a cada botão do controle, como o teclado de um celular. Não toca durante os vídeos."
+        "Música do aparelho" -> tip + nl + nl + "Escolha uma música sua para tocar no lugar do tema do app. O app procura os arquivos de áudio no pendrive ligado à TV e na memória dela." + nl + nl + "A primeira vez, o Android pede permissão para o app ver as músicas." + nl + nl + "O volume segue a opção Som do aplicativo."
         "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AuroraTV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
             "Fora do app (YouTube, Netflix), o app tenta reforçar o som geral da TV; se a TV não permitir, use o ajuste de graves da própria soundbar." + nl +
             "Se a soundbar recebe o áudio em Dolby/DTS direto (passthrough), o reforço não se aplica: ajuste na soundbar."
@@ -1911,7 +2034,14 @@ private fun settingBody(
             "• Planetas: gigante gasoso com anéis e lua" + nl +
             "• Órbitas: planetas girando em volta do sol" + nl +
             "• Mar alienígena: oceano com duas luas e o luar brilhando na água" + nl +
-            "• Deserto: dunas, sol intenso e poeira no vento"
+            "• Deserto: dunas, sol intenso e poeira no vento" + nl +
+            "• Plutão gelado: montanhas de gelo, névoa e cristais no ar" + nl +
+            "• Cratera ao sol: sol intenso brilhando sobre a cratera" + nl +
+            "• Marte: tempestade de poeira rosada e sol fraco" + nl +
+            "• Tempestade em Júpiter: raios sobre o oceano dourado" + nl +
+            "• Mundo vulcânico: lava pulsando, brasas e fumaça" + nl +
+            "• Terra vista da Lua: a Terra brilhando sobre o solo lunar" + nl + nl +
+            "Cartões e menu mudam de cor para combinar com o fundo."
         "Canais fora do ar" -> tip + nl + nl + "O app marca cada canal: verde = online, amarelo = instável, vermelho = fora do ar. A marcação vem de quando você assiste e de um teste leve, a cada 30 minutos, só dos seus favoritos e recentes (para não sobrecarregar o servidor)." + nl + nl + "Ocultar esconde das abas os canais marcados como fora do ar."
         "Meteoro ao apertar OK" -> tip + nl + nl + "Mostra um meteoro azul passando no alto da tela quando você aperta OK para entrar numa seção. A animação de abertura não muda."
         "Rede e internet" -> {
@@ -1952,14 +2082,29 @@ private fun settingBody(
 }
 
 @Composable
-private fun IptvBox(url: String, user: String, pass: String, field: Int, first: Boolean, saved: Boolean, busy: Boolean) {
+private fun IptvBox(url: String, user: String, pass: String, field0: Int, first: Boolean, saved: Boolean, busy: Boolean, slot: Int) {
+    val field = field0 - 1
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val shape = RoundedCornerShape(u(18))
         Column(Modifier.width(u(620)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34))) {
             Text("Entrar com IPTV", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(u(6)))
             Text("Use a sua conta licenciada. Os canais da sua assinatura entram na TV ao vivo, e filmes e séries nas suas abas.", color = CDim, fontSize = ts(15))
-            Spacer(Modifier.height(u(20)))
+            Spacer(Modifier.height(u(16)))
+            run {
+                val s0 = RoundedCornerShape(u(10))
+                Row(
+                    Modifier.fillMaxWidth().height(u(46)).background(Color(0xFF0E121B), s0)
+                        .border(BorderStroke(u(2), if (field0 == 0) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s0)
+                        .padding(horizontal = u(16)),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("◀", color = CAccent, fontSize = ts(18))
+                    Text("   Conta ${slot + 1} de 5" + if (saved) " · salva" else " · vazia", color = CInk, fontSize = ts(18), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("▶", color = CAccent, fontSize = ts(18))
+                }
+            }
+            Spacer(Modifier.height(u(14)))
             val fields = listOf(
                 Triple("Endereço (URL)", if (url.isBlank()) "http://seu-servidor:porta" else url, url.isBlank()),
                 Triple("Usuário", if (user.isBlank()) "seu-usuario" else user, user.isBlank()),
@@ -1994,7 +2139,7 @@ private fun IptvBox(url: String, user: String, pass: String, field: Int, first: 
             }
             Spacer(Modifier.height(u(14)))
             Text(
-                "Os dados ficam só no aparelho. " + if (first) "Sem conta agora? Aperte Voltar para entrar no app." else "Voltar sai deste quadro.",
+                "Até 5 contas: ◀ ▶ trocam a conta. As contas salvas são juntadas nas abas. Os dados ficam só no aparelho. " + if (first) "Sem conta agora? Aperte Voltar para entrar no app." else "Voltar sai deste quadro.",
                 color = CDim, fontSize = ts(12.5f)
             )
         }
@@ -2345,5 +2490,35 @@ private fun ReaderBox(c: Card?) {
             Spacer(Modifier.height(u(18)))
             Text("Voltar ou OK fecha", color = CDim, fontSize = ts(14))
         }
+    }
+}
+
+/** Moeda animada girando, original: Real (R$) para o Ibovespa, Dólar, Euro e Bitcoin. */
+@Composable
+private fun Coin(name: String, modifier: Modifier, size: Dp) {
+    val n = Iptv.norm(name)
+    val (sym, a, b) = when {
+        n.startsWith("dolar") -> Triple("$", Color(0xFFE9F3E4), Color(0xFF4F8A5B))
+        n.startsWith("euro") -> Triple("€", Color(0xFFFFE9A8), Color(0xFF3A5FB0))
+        n.startsWith("bitcoin") -> Triple("₿", Color(0xFFFFD08A), Color(0xFFE07A10))
+        else -> Triple("R$", Color(0xFFFFF0B0), Color(0xFF2F8F4E))
+    }
+    val inf = rememberInfiniteTransition(label = "coin")
+    val rot by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(4200, easing = androidx.compose.animation.core.LinearEasing)), label = "rot")
+    val bob by inf.animateFloat(-1f, 1f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label = "bob")
+    val d = LocalDensity.current.density
+    Box(
+        modifier.size(size).graphicsLayer {
+            rotationY = rot
+            cameraDistance = 14f * d
+            translationY = bob * 4f * d
+        }.clip(androidx.compose.foundation.shape.CircleShape)
+            .background(Brush.radialGradient(listOf(a, b, b.copy(alpha = 1f)), radius = size.value * d * 0.75f))
+            .border(BorderStroke(size * 0.06f, Brush.linearGradient(listOf(Color(0xFFFFFFFF), b, Color(0xFF1A1A1A)))), androidx.compose.foundation.shape.CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        // brilho de metal
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0x66FFFFFF), Color.Transparent, Color(0x22FFFFFF)))))
+        Text(sym, color = Color(0xFF1A1206), fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.ExtraBold)
     }
 }

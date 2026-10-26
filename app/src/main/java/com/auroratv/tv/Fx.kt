@@ -252,6 +252,129 @@ private fun DrawScope.orbits(t: Float, u: Float) {
 }
 
 
+/** Efeitos das cenas fotográficas (temas 5 a 10), presos aos pontos da própria imagem. */
+private fun DrawScope.scene(theme: Int, t: Float, u: Float, d: StarData) {
+    val w = size.width
+    val h = size.height
+    // a imagem (1408 x 768) é cortada para preencher a tela: converte um ponto dela para a tela
+    val s = max(w / 1408f, h / 768f)
+    val ox = (1408f * s - w) / 2f
+    val oy = (768f * s - h) / 2f
+    fun im(x: Float, y: Float) = Offset(x * s - ox, y * s - oy)
+    fun glow(c: Offset, r: Float, col: Color, a: Float) {
+        drawCircle(Brush.radialGradient(listOf(col.al(a), col.al(0f)), center = c, radius = r), r, c)
+    }
+    val n = d.qn
+    when (theme) {
+        5 -> {
+            // Plutão: sol distante cintilando, névoa passando no horizonte e cristais de gelo caindo
+            val sun = im(1140f, 124f)
+            val p = 0.5f + 0.5f * sin(t * 1.3f)
+            glow(sun, (40f + 14f * p) * s, Color(0xFFE8F2FF), 0.55f)
+            val mx = ((t * 0.012f) % 1.4f - 0.2f) * w
+            glow(Offset(mx, h * 0.36f), 260f * s, Color(0xFFCFE0F5), 0.10f)
+            glow(Offset((mx + w * 0.6f) % (w * 1.2f), h * 0.33f), 200f * s, Color(0xFFCFE0F5), 0.08f)
+            for (i in 0 until n) {
+                val x = ((d.qx[i] - t * (0.004f + d.qv[i] * 40f)) % 1f + 1f) % 1f
+                val y = ((d.qy[i] + t * (0.006f + d.qv[i] * 60f)) % 1f + 1f) % 1f
+                drawCircle(Color(0xFFEAF4FF).al(d.qa[i] * (0.6f + 0.4f * sin(t * 2f + d.qp[i]))), d.qr[i] * 0.8f * u, Offset(x * w, y * h))
+            }
+        }
+        6 -> {
+            // cratera: sol intenso pulsando, raio de luz e poeira suspensa contra o sol
+            val sun = im(1105f, 152f)
+            val p = 0.5f + 0.5f * sin(t * 0.9f)
+            glow(sun, (230f + 40f * p) * s, Color(0xFFFFF4DC), 0.30f + 0.12f * p)
+            glow(sun, (110f + 10f * p) * s, Color.White, 0.35f)
+            drawLine(Color(0xFFFFF4DC).al(0.18f + 0.1f * p), Offset(sun.x - 320f * s, sun.y), Offset(sun.x + 320f * s, sun.y), strokeWidth = 2.5f * s)
+            for (i in 0 until n) {
+                val x = ((d.qx[i] + t * d.qv[i] * 30f) % 1f)
+                val y = 0.15f + d.qy[i] * 0.6f + 0.01f * sin(t * 0.6f + d.qp[i])
+                val near = 1f - (kotlin.math.abs(x * w - sun.x) / (w * 0.5f)).coerceIn(0f, 1f)
+                drawCircle(Color(0xFFFFF1D6).al(d.qa[i] * (0.25f + 0.75f * near)), d.qr[i] * 0.7f * u, Offset(x * w, y * h))
+            }
+        }
+        7 -> {
+            // Marte: véu de poeira rosada respirando, sol fraco e grãos de areia levados pelo vento
+            val sun = im(1103f, 196f)
+            val p = 0.5f + 0.5f * sin(t * 0.5f)
+            glow(sun, (120f + 20f * p) * s, Color(0xFFFFE8DC), 0.35f)
+            drawRect(Color(0xFFE2B7A8).al(0.05f + 0.06f * p))
+            for (i in 0 until n) {
+                val x = ((d.qx[i] - t * (0.02f + d.qv[i] * 120f)) % 1f + 1f) % 1f
+                val y = 0.35f + d.qy[i] * 0.6f + 0.015f * sin(t * 1.4f + d.qp[i])
+                drawCircle(Color(0xFFE9B9A0).al(d.qa[i] * 0.9f), d.qr[i] * u, Offset(x * w, y * h))
+                if (i % 9 == 0) drawLine(Color(0xFFE9B9A0).al(d.qa[i] * 0.4f), Offset(x * w, y * h), Offset(x * w + 26f * u, y * h), strokeWidth = 0.8f * u)
+            }
+        }
+        8 -> {
+            // Júpiter: relâmpagos sobre o oceano dourado, em lugares e tempos diferentes
+            val slot = kotlin.math.floor(t / 2.7f).toInt()
+            val within = t - slot * 2.7f
+            val rr = java.util.Random(slot * 7919L)
+            if (rr.nextFloat() < 0.75f && within < 0.45f) {
+                val flick = if (within < 0.08f || (within > 0.16f && within < 0.24f)) 1f else 0.35f
+                val fade = (1f - within / 0.45f) * flick
+                val x0 = (0.12f + rr.nextFloat() * 0.8f) * w
+                var y = h * (0.50f + rr.nextFloat() * 0.06f)
+                var x = x0
+                drawRect(Color(0xFFFFE9C8).al(0.10f * fade))
+                glow(Offset(x0, y + 40f * s), 220f * s, Color(0xFFFFF0D8), 0.35f * fade)
+                val segs = 6 + rr.nextInt(5)
+                for (k in 0 until segs) {
+                    val nx = x + (rr.nextFloat() - 0.5f) * 46f * s
+                    val ny = y + (14f + rr.nextFloat() * 20f) * s
+                    drawLine(Color(0xFFFFF6E6).al(0.95f * fade), Offset(x, y), Offset(nx, ny), strokeWidth = 2.2f * s)
+                    drawLine(Color(0xFFFFD9A0).al(0.35f * fade), Offset(x, y), Offset(nx, ny), strokeWidth = 7f * s)
+                    if (rr.nextFloat() < 0.3f) {
+                        drawLine(Color(0xFFFFF6E6).al(0.6f * fade), Offset(nx, ny), Offset(nx + (rr.nextFloat() - 0.5f) * 60f * s, ny + 22f * s), strokeWidth = 1.2f * s)
+                    }
+                    x = nx
+                    y = ny
+                }
+            }
+            // brilho dourado ondulando na água
+            for (i in 0 until n / 2) {
+                val yy = 0.62f + d.qy[i] * 0.38f
+                val b = sin(t * (0.8f + d.qa[i] * 2f) + d.qp[i])
+                if (b > 0.7f) {
+                    val l = (6f + d.qr[i] * 8f) * u
+                    drawLine(Color(0xFFFFD08A).al((b - 0.7f) / 0.3f * 0.6f), Offset(d.qx[i] * w - l, yy * h), Offset(d.qx[i] * w + l, yy * h), strokeWidth = 1.4f * u)
+                }
+            }
+        }
+        9 -> {
+            // vulcânico: lava pulsando nos rios, brasas subindo e fumaça passando
+            val hot = listOf(im(120f, 520f), im(330f, 480f), im(560f, 455f), im(800f, 420f), im(930f, 400f), im(700f, 360f), im(470f, 345f))
+            for ((k, c) in hot.withIndex()) {
+                val p = 0.5f + 0.5f * sin(t * (1.1f + k * 0.17f) + k)
+                glow(c, (90f + 40f * p) * s, Color(0xFFFF8A2A), 0.20f + 0.18f * p)
+            }
+            for (i in 0 until n) {
+                val life = ((t * (0.05f + d.qv[i] * 300f) + d.qp[i]) % 1f)
+                val x = d.qx[i] * w + sin(t * 1.5f + d.qp[i]) * 12f * u
+                val y = h * (0.78f - life * 0.6f)
+                val a = d.qa[i] * (1f - life) * (0.6f + 0.4f * sin(t * 9f + d.qp[i]))
+                drawCircle(Color(0xFFFFB050).al(a), d.qr[i] * 0.9f * u, Offset(x, y))
+            }
+            val sx = ((t * 0.01f) % 1.3f - 0.15f) * w
+            glow(Offset(sx, h * 0.2f), 320f * s, Color(0xFFD8B072), 0.12f)
+        }
+        10 -> {
+            // Terra vista da Lua: atmosfera brilhando em volta da Terra e poeira lunar baixa
+            val e = im(393f, 155f)
+            val p = 0.5f + 0.5f * sin(t * 0.7f)
+            drawCircle(Color(0xFF7FC4FF).al(0.25f + 0.15f * p), 70f * s, e, style = Stroke(width = (3f + 2f * p) * s))
+            glow(e, (120f + 20f * p) * s, Color(0xFF6FB6FF), 0.22f)
+            for (i in 0 until n) {
+                val x = ((d.qx[i] + t * d.qv[i] * 25f) % 1f)
+                val y = 0.72f + d.qy[i] * 0.28f + 0.008f * sin(t + d.qp[i])
+                drawCircle(Color(0xFFE6E2DC).al(d.qa[i] * 0.55f), d.qr[i] * 0.7f * u, Offset(x * w, y * h))
+            }
+        }
+    }
+}
+
 /** Fundo: nebulosa em movimento lento, estrelas piscando, estrelas pulsando e poeira estelar. */
 @Composable
 fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
@@ -270,6 +393,12 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
                     2 -> R.drawable.bg_orbits
                     3 -> R.drawable.bg_ocean
                     4 -> R.drawable.bg_desert
+                    5 -> R.drawable.bg_pluto
+                    6 -> R.drawable.bg_crater
+                    7 -> R.drawable.bg_mars
+                    8 -> R.drawable.bg_jupiter
+                    9 -> R.drawable.bg_lava
+                    10 -> R.drawable.bg_earthrise
                     else -> R.drawable.bg_nebula
                 }
             ), null,
@@ -288,6 +417,12 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
             3 -> 0.42f
             4 -> 0.58f
             1 -> 0.26f
+            5 -> 0.30f
+            6 -> 0.26f
+            7 -> 0.50f
+            8 -> 0.24f
+            9 -> 0.46f
+            10 -> 0.22f
             else -> 0.22f
         }
         Box(Modifier.fillMaxSize().background(Color(0xFF030509).copy(alpha = veil)))
@@ -336,9 +471,11 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
                     drawCircle(Color(0xFFFFD9A8).al(d.qa[i] * (0.6f + 0.4f * sin(t + d.qp[i]))), d.qr[i] * u, Offset(d.qx[i] * w, yy * h))
                 }
             }
+            if (theme >= 5) scene(theme, t, u, d)
             for (i in 0 until d.n) {
-                if (theme >= 3) break
+                if (theme == 3 || theme == 4 || theme == 7 || theme == 8 || theme == 9) break
                 if (theme == 1 && d.sx[i] > 0.42f) continue
+                if ((theme == 5 || theme == 6 || theme == 10) && d.sy[i] > 0.3f) continue
                 val a = 0.45f + 0.55f * sin(t * d.ss[i] + d.sp[i])
                 val x = d.sx[i] * w
                 val y = d.sy[i] * h

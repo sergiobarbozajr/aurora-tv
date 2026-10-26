@@ -93,8 +93,9 @@ val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080
 val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema espacial · baixo", "Tema espacial · médio", "Tema espacial · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
-val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto")
+val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto", "Plutão gelado", "Cratera ao sol", "Marte", "Tempestade em Júpiter", "Mundo vulcânico", "Terra vista da Lua")
 val BASS_NAMES = listOf("Desligado", "Médio", "Alto", "Máximo")
+val KEYS_NAMES = listOf("Desligado", "Ligado")
 val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
 val SCREEN_NAMES = listOf("Original", "Preencher", "Zoom", "16:9", "4:3", "Personalizado")
 
@@ -106,15 +107,14 @@ val SETTING_ITEMS = listOf(
     SettingItem("Tema do app", "theme"),
     SettingItem("Clima e cidade", "city"),
     SettingItem("Som do aplicativo", "sound"),
+    SettingItem("Música do aparelho", "musicfile"),
+    SettingItem("Sons das teclas", "keys"),
     SettingItem("Grave (bass) para soundbar", "bass"),
-    SettingItem("Meteoro ao apertar OK", "meteor"),
     SettingItem("Canais fora do ar", "hideoff"),
     SettingItem("Rede e internet", null),
     SettingItem("Guia de imagem (TCL A400M)", null),
     SettingItem("Teste de tela", null),
     SettingItem("Mapear controle remoto", null),
-    SettingItem("Bloquear anúncios (DNS)", null),
-    SettingItem("Abrir ajustes do Google TV", null),
     SettingItem("Conta IPTV", null),
     SettingItem("Atualização do app", null),
     SettingItem("Sobre o aparelho", null)
@@ -154,6 +154,31 @@ object Store {
     var screenMode: Int
         get() = int("screen_mode")
         set(v) = putInt("screen_mode", v)
+    var keySound: Int
+        get() = int("key_sound", 1)
+        set(v) = putInt("key_sound", v)
+    var musicUri: String
+        get() = sp.getString("music_uri", "") ?: ""
+        set(v) = sp.edit().putString("music_uri", v).apply()
+    var musicName: String
+        get() = sp.getString("music_name", "") ?: ""
+        set(v) = sp.edit().putString("music_name", v).apply()
+
+    /** Contas de IPTV: espaço 0 usa as chaves antigas; 1 a 4 são as contas extras. */
+    fun acc(k: Int): Triple<String, String, String> =
+        if (k == 0) Triple(iptvUrl, iptvUser, iptvPass)
+        else Triple(sp.getString("iptv_url_$k", "") ?: "", sp.getString("iptv_user_$k", "") ?: "", sp.getString("iptv_pass_$k", "") ?: "")
+
+    fun setAcc(k: Int, url: String, user: String, pass: String) {
+        if (k == 0) {
+            iptvUrl = url
+            iptvUser = user
+            iptvPass = pass
+        } else sp.edit().putString("iptv_url_$k", url).putString("iptv_user_$k", user).putString("iptv_pass_$k", pass).apply()
+    }
+
+    fun anyAcc(): Boolean = (0 until 5).any { acc(it).first.isNotBlank() }
+
     var bass: Int
         get() = int("bass")
         set(v) = putInt("bass", v)
