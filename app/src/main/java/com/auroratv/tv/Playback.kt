@@ -126,6 +126,8 @@ class Playback(private val context: Context) {
             .setLoadControl(load)
             .build()
         p.playWhenReady = true
+        // mantém Wi-Fi e processador acordados durante a reprodução (streams longos sem toque no controle)
+        p.setWakeMode(C.WAKE_MODE_NETWORK)
         // áudio e legenda em português do Brasil quando o conteúdo tiver essa faixa
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .setPreferredAudioLanguages("pt-BR", "pt", "por")

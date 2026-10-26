@@ -484,6 +484,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
     LaunchedEffect(zone, epFromPlayer, sndFromPlayer) {
         val v = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer) || (zone == Z.SOUND && sndFromPlayer)
+        // tela sempre ligada enquanto houver vídeo: a TV não entra em descanso nem em stand-by por inatividade
+        if (v) activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         videoPlayingFlag = v
         Sound.setPaused(v)
     }
@@ -2308,6 +2311,7 @@ private fun PlayerScreen(
                 // SurfaceView (padrão) preserva o HDR nativo.
                 PlayerView(ctx).apply {
                     useController = false
+                    keepScreenOn = true
                     this.player = player
                     isFocusable = false
                     isFocusableInTouchMode = false
