@@ -44,6 +44,36 @@ class Diag(val title: String, val layer: String, val detail: String, val fix: St
 class Playback(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
 
+    companion object Cur {
+        /** O player em uso, para o app pausar e guardar o ponto quando a TV dorme ou sai do app. */
+        var current: Playback? = null
+    }
+
+    /** Onde o filme/episódio vai continuar (ms) e de onde continuou, para o aviso na tela. */
+    private var resumeAt = 0L
+    var resumedFrom by mutableStateOf(0L)
+        private set
+    private var saveSec = 0
+
+    /** Guarda o ponto atual. Perto do fim (últimos 5% ou 2 min) apaga, para o próximo play começar do início. */
+    fun savePos() {
+        val c = card ?: return
+        if (c.kind == "stream" || !everReady) return
+        val pos = player.currentPosition
+        val dur = player.duration
+        if (dur > 0 && (pos > dur * 0.95 || dur - pos < 120_000L)) Store.resumeSet(url, 0L)
+        else if (pos > 20_000L) Store.resumeSet(url, pos)
+    }
+
+    /** "Começar do início" no menu do player. */
+    fun restart() {
+        Store.resumeSet(url, 0L)
+        resumeAt = 0L
+        resumedFrom = 0L
+        player.seekTo(0L)
+        player.play()
+    }
+
     /** Não nulo = tela SEM SINAL com o diagnóstico. */
     var diag by mutableStateOf<Diag?>(null)
         private set
@@ -58,7 +88,8 @@ class Playback(private val context: Context) {
     /** Chamado quando o servidor recusa a sessão (401/403): o app refaz o login em silêncio. */
     var onAuthExpired: (() -> Unit)? = null
 
-    private var card: Card? = null
+    var card: Card? = null
+        private set
     private var url = ""
     private var attempt = 0
     private var swappedFormat = false
@@ -145,6 +176,7 @@ class Playback(private val context: Context) {
 
     init {
         loadHealth()
+        current = this
     }
 
     /** Troca o player por um novo, sem efeitos de vídeo, e retoma o que estava tocando. */
@@ -194,6 +226,11 @@ class Playback(private val context: Context) {
                     retryLater()
                 }
             } else bufferingSec = 0
+            // a cada 10 s tocando, guarda o ponto (se a TV desligar de repente, não perde)
+            if (c != null && player.isPlaying && ++saveSec >= 10) {
+                saveSec = 0
+                savePos()
+            }
             main.postDelayed(this, 1000)
         }
     }
@@ -215,11 +252,15 @@ class Playback(private val context: Context) {
         diag = null
         connecting = true
         bufferingSec = 0
+        resumeAt = if (c.kind == "stream") 0L else Store.resumeGet(u)
+        resumedFrom = resumeAt
         main.removeCallbacks(retryRun)
         prepare()
     }
 
     fun stop() {
+        savePos()
+        resumedFrom = 0L
         main.removeCallbacks(retryRun)
         card = null
         diag = null
@@ -240,6 +281,8 @@ class Playback(private val context: Context) {
     }
 
     private fun prepare() {
+        // reconectando no meio do filme: continua de onde estava, não do começo
+        if (card?.kind != "stream" && everReady && player.currentPosition > 1000L) resumeAt = player.currentPosition
         try {
             val b = MediaItem.Builder().setUri(url)
             val low = url.lowercase()
@@ -254,7 +297,7 @@ class Playback(private val context: Context) {
                 low.contains(".mpd") -> DashMediaSource.Factory(ds).createMediaSource(item)
                 else -> ProgressiveMediaSource.Factory(ds, extractors).createMediaSource(item)
             }
-            player.setMediaSource(src)
+            if (card?.kind != "stream" && resumeAt > 0L) player.setMediaSource(src, resumeAt) else player.setMediaSource(src)
             player.prepare()
             player.play()
         } catch (e: Exception) {

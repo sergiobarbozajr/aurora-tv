@@ -15,7 +15,7 @@ object News {
     private class Feed(val group: String, val source: String, val url: String)
 
     private val FEEDS = listOf(
-        Feed("Notícias do dia", "G1", "https://g1.globo.com/rss/g1/"),
+        Feed("Notícias do Brasil", "G1", "https://g1.globo.com/rss/g1/"),
         Feed("Economia e bolsa", "InfoMoney", "https://www.infomoney.com.br/feed/"),
         Feed("Economia e bolsa", "G1 Economia", "https://g1.globo.com/rss/g1/economia/"),
         Feed("Economia e bolsa", "Investidor10", "https://investidor10.com.br/noticias/feed/"),
@@ -27,6 +27,59 @@ object News {
         Feed("Tecnologia", "Olhar Digital", "https://olhardigital.com.br/feed/"),
         Feed("Futebol", "Lance!", "https://www.lance.com.br/feed/")
     )
+
+    /** Jornais da cidade e do estado escolhidos em Configurações → Clima e cidade. Nada de outros estados. */
+    private fun regional(city: String): Pair<String, List<Feed>> {
+        val c = Iptv.norm(city)
+        fun f(src: String, url: String) = Feed("REGIAO", src, url)
+        val rj = listOf(
+            f("g1 RJ", "https://g1.globo.com/rss/g1/rj/rio-de-janeiro/"),
+            f("O Dia", "https://odia.ig.com.br/rss.xml"),
+            f("Extra", "https://extra.globo.com/rss.xml")
+        )
+        return when {
+            c.startsWith("macae") || c.startsWith("rio das ostras") || c.startsWith("campos") -> Pair(
+                "$city e região",
+                listOf(
+                    f("g1 Norte Fluminense", "https://g1.globo.com/rss/g1/rj/norte-fluminense/"),
+                    f("g1 Região dos Lagos", "https://g1.globo.com/rss/g1/rj/regiao-dos-lagos/"),
+                    f("Clique Diário", "https://www.cliquediario.com.br/feed/"),
+                    f("O Debate", "https://odebateon.com.br/feed/")
+                ) + rj
+            )
+            c.startsWith("niteroi") || c.startsWith("rio de janeiro") -> Pair("$city e RJ", rj)
+            c.startsWith("vitoria") -> Pair("$city e ES", listOf(f("g1 ES", "https://g1.globo.com/rss/g1/espirito-santo/"), f("A Gazeta", "https://www.agazeta.com.br/rss")))
+            c.startsWith("belo horizonte") -> Pair("$city e MG", listOf(f("g1 MG", "https://g1.globo.com/rss/g1/minas-gerais/"), f("O Tempo", "https://www.otempo.com.br/rss")))
+            c.startsWith("sao paulo") -> Pair("$city e SP", listOf(f("g1 SP", "https://g1.globo.com/rss/g1/sao-paulo/")))
+            else -> Pair(city, emptyList())
+        }
+    }
+
+    /** Investidor10 não publica feed RSS: lê a página de notícias e tira manchete, link e foto. */
+    private fun investidor10(): List<Card> {
+        val out = ArrayList<Card>()
+        val html = get("https://investidor10.com.br/noticias/") ?: return out
+        val linkRe = Regex("<a[^>]+href=\"(https://investidor10\\.com\\.br/noticias/[a-z0-9-]{12,}[^\"]*)\"[^>]*>(.*?)</a>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val imgRe2 = Regex("(?:data-src|src)=\"(https://[^\"]+\\.(?:jpg|jpeg|png|webp)[^\"]*)\"", RegexOption.IGNORE_CASE)
+        val seen = HashSet<String>()
+        for (m in linkRe.findAll(html)) {
+            if (out.size >= 10) break
+            val url = m.groupValues[1]
+            if (!seen.add(url.substringBefore("?"))) continue
+            val inner = m.groupValues[2]
+            var title = clean(inner.replace(Regex("<[^>]+>"), " "))
+            if (title.length < 25) {
+                val t = Regex("title=\"([^\"]{25,})\"").find(m.value)?.groupValues?.get(1)
+                if (t != null) title = clean(t)
+            }
+            if (title.length < 25) continue
+            // foto: dentro do link ou logo antes dele
+            val from = maxOf(0, m.range.first - 1500)
+            val img = imgRe2.find(inner)?.groupValues?.get(1) ?: imgRe2.findAll(html.substring(from, m.range.first)).lastOrNull()?.groupValues?.get(1) ?: ""
+            out.add(mkCard(title, "Investidor10", "news", title.hashCode() and 0x7fffffff, null, "", emptyList(), title).copy(img = img))
+        }
+        return out
+    }
 
     private fun get(urlStr: String): String? {
         return try {
@@ -122,7 +175,7 @@ object News {
     }
 
     /** Devolve fileiras prontas: "Mercado agora" e uma por assunto. */
-    fun load(cb: (List<RowData>) -> Unit) {
+    fun load(city: String, cb: (List<RowData>) -> Unit) {
         thread {
             val rows = ArrayList<RowData>()
             try {
@@ -131,6 +184,17 @@ object News {
             } catch (e: Throwable) {
             }
             val groups = LinkedHashMap<String, MutableList<Card>>()
+            // primeiro as notícias da região (cidade e estado), depois o resto
+            val (regName, regFeeds) = regional(city)
+            val regKey = "Notícias de $regName"
+            for (f in regFeeds) {
+                try {
+                    val xml = get(f.url) ?: continue
+                    val l = groups.getOrPut(regKey) { ArrayList() }
+                    for (c in parse(xml, f.source, regKey, 8)) if (l.none { it.name == c.name }) l.add(c)
+                } catch (e: Throwable) {
+                }
+            }
             for (f in FEEDS) {
                 try {
                     val xml = get(f.url) ?: continue
@@ -140,7 +204,23 @@ object News {
                 } catch (e: Throwable) {
                 }
             }
-            for ((g, l) in groups) if (l.isNotEmpty()) rows.add(RowData(g, l.take(14)))
+            try {
+                val inv = investidor10()
+                if (inv.isNotEmpty()) {
+                    val l = groups.getOrPut("Economia e bolsa") { ArrayList() }
+                    // mistura as fontes, para não ficar só uma no começo da fileira
+                    val merged = ArrayList<Card>()
+                    val a = l.toList()
+                    for (i in 0 until maxOf(a.size, inv.size)) {
+                        if (i < inv.size) merged.add(inv[i])
+                        if (i < a.size) merged.add(a[i])
+                    }
+                    l.clear()
+                    l.addAll(merged.distinctBy { it.name })
+                }
+            } catch (e: Throwable) {
+            }
+            for ((g, l) in groups) if (l.isNotEmpty()) rows.add(RowData(g, l.take(if (g == "Economia e bolsa") 20 else 14)))
             main.post { cb(rows) }
         }
     }

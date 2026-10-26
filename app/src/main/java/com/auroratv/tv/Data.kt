@@ -93,7 +93,7 @@ val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080
 val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema espacial · baixo", "Tema espacial · médio", "Tema espacial · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
-val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto", "Plutão gelado", "Cratera ao sol", "Marte", "Tempestade em Júpiter", "Mundo vulcânico", "Terra vista da Lua")
+val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto", "Plutão gelado", "Cratera ao sol", "Marte", "Tempestade em Júpiter", "Vênus vulcânico", "Terra vista da Lua")
 val BASS_NAMES = listOf("Desligado", "Médio", "Alto", "Máximo")
 val KEYS_NAMES = listOf("Desligado", "Clique suave", "Tecla de celular", "Bolha", "Madeira", "Cristal", "Digital")
 val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
@@ -127,6 +127,12 @@ object Store {
     }
 
     private fun int(k: String, d: Int = 0) = sp.getInt(k, d)
+
+    /** Ponto onde parou em cada filme/episódio (ms). 0 = começar do início. */
+    fun resumeGet(k: String): Long = sp.getLong("rs:" + k.hashCode(), 0L)
+    fun resumeSet(k: String, v: Long) {
+        if (v <= 0L) sp.edit().remove("rs:" + k.hashCode()).apply() else sp.edit().putLong("rs:" + k.hashCode(), v).apply()
+    }
     private fun putInt(k: String, v: Int) = sp.edit().putInt(k, v).apply()
 
     var quality: Int
@@ -144,6 +150,11 @@ object Store {
     var meteor: Int
         get() = int("meteor")
         set(v) = putInt("meteor", v)
+
+    /** Volume do som das teclas, 0 a 10. */
+    var keyVol: Int
+        get() = int("key_vol", 6)
+        set(v) = putInt("key_vol", v)
 
     var health: String
         get() = sp.getString("health", "") ?: ""

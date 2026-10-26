@@ -70,6 +70,9 @@ object Sound {
     /** Tipo do som de tecla: 0 = desligado; 1 a 6 = estilos. */
     @Volatile
     var keyType = 1
+
+    /** Volume das teclas, 0 a 10 (independente do volume da TV para o vídeo). */
+    var keyVol = 6
     private val clickExec = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var clickBuilt = -1
 
@@ -102,7 +105,7 @@ object Sound {
     /** Toque de tecla: roda numa linha separada, para não atrasar a navegação. */
     fun click() {
         val type = keyType
-        if (type == 0) return
+        if (type == 0 || keyVol <= 0) return
         clickExec.execute {
             try {
                 var t = clickTrack
@@ -121,7 +124,9 @@ object Sound {
                 }
                 t.stop()
                 t.reloadStaticData()
-                t.play()
+                val v = (keyVol.coerceIn(0, 10) / 10f).let { it * it }
+                t.setVolume(v)
+                if (v > 0f) t.play()
             } catch (e: Throwable) {
             }
         }

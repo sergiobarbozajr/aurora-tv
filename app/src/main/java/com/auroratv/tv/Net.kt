@@ -99,6 +99,25 @@ object Net {
             val bytes = 10_000_000L
             val url = "https://speed.cloudflare.com/__down?bytes=$bytes"
             var result = "não foi possível medir."
+            // tempo de resposta (ping): média de 3 conexões curtas
+            var ping = -1L
+            try {
+                var sum = 0L
+                var ok = 0
+                repeat(3) {
+                    val t0 = System.currentTimeMillis()
+                    val c = (URL("https://speed.cloudflare.com/__down?bytes=0").openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 5000; readTimeout = 5000
+                    }
+                    if (c.responseCode in 200..299) {
+                        sum += System.currentTimeMillis() - t0
+                        ok++
+                    }
+                    c.disconnect()
+                }
+                if (ok > 0) ping = sum / ok
+            } catch (e: Exception) {
+            }
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000; readTimeout = 20000
@@ -114,7 +133,13 @@ object Net {
                 val ms = System.currentTimeMillis() - start
                 if (ms > 0 && total > 0) {
                     val mbps = total * 8.0 / (ms * 1000.0)
-                    result = "${(Math.round(mbps * 10) / 10.0)} Mb/s"
+                    val dica = when {
+                        mbps >= 25 -> "boa para 4K"
+                        mbps >= 10 -> "boa para Full HD; 4K pode travar"
+                        mbps >= 5 -> "boa para HD"
+                        else -> "pode travar até em HD"
+                    }
+                    result = "${(Math.round(mbps * 10) / 10.0)} Mb/s · $dica" + if (ping >= 0) " · resposta ${ping} ms" else ""
                 }
             } catch (e: Exception) {
             }

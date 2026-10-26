@@ -98,13 +98,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.StrokeCap
 import kotlin.math.max
 import kotlin.math.min
 
 // ---------- paleta ----------
 private val CInk = Color(0xFFF2F5FA)
-private val CLight = Color(0xFFC3CDDE)
-private val CDim = Color(0xFF7E8AA2)
+private val CLight: Color get() = ThemeState.pal.light
+private val CDim: Color get() = ThemeState.pal.dim
 private val CAccent: Color get() = ThemeState.pal.accent
 private val CWarm = Color(0xFFFFD27A)
 private val CCard: Color get() = ThemeState.pal.card
@@ -130,9 +131,12 @@ private val AuroraFont = androidx.compose.ui.text.font.FontFamily(
 private fun u(n: Number): Dp = (n.toFloat() * LocalK.current).dp
 
 @Composable
-private fun ts(n: Number): TextUnit = (n.toFloat() * LocalK.current).sp
+private fun ts(n: Number): TextUnit = (max(n.toFloat(), 13.5f) * LocalK.current).sp
 
 var videoPlayingFlag = false
+
+/** Só no APK de teste (debug): endereço tocado sozinho para o teste automático de áudio e retomada. */
+var testUrl: String? = null
 
 class MainActivity : ComponentActivity() {
     lateinit var speech: ActivityResultLauncher<Intent>
@@ -143,6 +147,8 @@ class MainActivity : ComponentActivity() {
         Store.init(this)
         Sound.init(this)
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
+        Sound.keyVol = Store.keyVol
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testUrl = intent?.getStringExtra("aurora_test")
         Store.musicUri = ""
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
@@ -181,6 +187,14 @@ class MainActivity : ComponentActivity() {
         setContent { AuroraApp(catalog, this) }
     }
 
+    /** O Android só mostra o nome do Wi-Fi para apps com permissão de localização. */
+    fun ensureLocationPerm() {
+        val p = android.Manifest.permission.ACCESS_FINE_LOCATION
+        if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try { requestPermissions(arrayOf(p, android.Manifest.permission.ACCESS_COARSE_LOCATION), 42) } catch (e: Exception) {}
+        }
+    }
+
     /** Pede permissão para ler músicas do aparelho (pendrive ou memória). */
     fun ensureAudioPerm(): Boolean {
         val perm = if (Build.VERSION.SDK_INT >= 33) "android.permission.READ_MEDIA_AUDIO" else android.Manifest.permission.READ_EXTERNAL_STORAGE
@@ -211,6 +225,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        // TV entrou em repouso ou saiu do app: pausa e guarda o ponto do filme
+        Playback.current?.let {
+            it.savePos()
+            if (it.card?.kind != "stream") it.player.pause()
+        }
         Sound.setPaused(true)
     }
 
@@ -231,7 +250,11 @@ fun AuroraApp(catalog: Catalog, activity: MainActivity) {
         val k = maxWidth.value / 1280f
         CompositionLocalProvider(
             LocalK provides k,
-            androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = AuroraFont)
+            androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(
+                fontFamily = AuroraFont,
+                // sombra suave em todo texto: destaca do fundo animado e das imagens
+                shadow = androidx.compose.ui.graphics.Shadow(Color(0xB3000000), Offset(0f, 2f), 6f)
+            )
         ) { AppBody(catalog, activity) }
     }
 }
@@ -508,9 +531,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         weatherText = ""
         Net.fetchWeather(c) { r -> weatherText = if (r != null) c.name + " " + r.substringBefore(" · ") else c.name }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(cityIdx) {
         while (true) {
-            News.load { r -> if (r.isNotEmpty()) newsRows = r }
+            News.load(catalog.cities[cityIdx].name) { r -> if (r.isNotEmpty()) newsRows = r }
             delay(15 * 60 * 1000L)
         }
     }
@@ -536,11 +559,23 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var logosVer by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { Logos.load { logosVer++ } }
     val free = remember(catalog, m3uExtra, logosVer) { buildFree(catalog, m3uExtra) }
-    val allCards = remember(free, iptvVersion) {
+    // canais abertos da lista pública do Brasil, separados por categoria
+    val openRows = remember(logosVer) {
+        val names = HashSet<String>()
+        Logos.open.groupBy { it.cat }.toList()
+            .sortedBy { listOf("Notícias", "Variedades", "Esporte", "Educativos", "Infantil", "Documentários", "Música", "Religiosos", "Públicos e legislativos", "Outros").indexOf(it.first).let { i -> if (i < 0) 99 else i } }
+            .map { (cat, l) ->
+                RowData("Canais abertos · $cat", l.filter { names.add(it.name.lowercase()) }.mapIndexed { i, o ->
+                    mkCard(o.name, cat, "stream", i + 7, o.url, "", emptyList(), "Canal aberto pela internet").copy(img = o.logo)
+                })
+            }.filter { it.cards.isNotEmpty() }
+    }
+    val allCards = remember(free, iptvVersion, openRows) {
         val l = ArrayList<Card>()
         l.addAll(free.antenna); l.addAll(free.internet); l.addAll(free.intl); l.addAll(free.films)
         l.addAll(free.anime); l.addAll(free.news); l.addAll(free.docs)
         streamRows().forEach { l.addAll(it.cards) }
+        openRows.forEach { l.addAll(it.cards) }
         iptvRows.values.forEach { rs -> rs.forEach { l.addAll(it.cards) } }
         l
     }
@@ -556,6 +591,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val sec = HashMap<String, String>()
         for ((name, rs) in iptvRows) for (r in rs) for (c in r.cards) sec.putIfAbsent(c.name, name)
         for (c in free.antenna + free.internet + free.intl) sec.putIfAbsent(c.name, "TV ao vivo")
+        for (r in openRows) for (c in r.cards) sec.putIfAbsent(c.name, "TV ao vivo")
         for (c in free.news) sec.putIfAbsent(c.name, "Notícias")
         for (c in free.films) sec.putIfAbsent(c.name, "Filmes")
         for (c in free.anime) sec.putIfAbsent(c.name, "Séries")
@@ -659,7 +695,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
                 RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") +
-                RowData("Abertos pela internet", free.internet) + RowData("Internacionais", free.intl)
+                RowData("Abertos pela internet", free.internet) + openRows + RowData("Internacionais", free.intl)
             else -> emptyList()
         }
         return out.filter { it.cards.isNotEmpty() }
@@ -1183,6 +1219,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         zone = Z.SOUND
                     }
                     "Rede e internet" -> {
+                        activity.ensureLocationPerm()
                         speedText = "medindo…"
                         Net.speedTest { speedText = it; netTick++ }
                     }
@@ -1290,7 +1327,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun menuItems(): List<String> = when (pmenu) {
-        "main" -> listOfNotNull("Áudio", "Ajustes de som (voz e ambiente)", "Legendas", "Ajuste de tela", if (seriesActive) "Temporadas e episódios" else null, "Informações")
+        "main" -> listOfNotNull(if (playCard?.kind != "stream" && player.currentPosition > 15000L) "Começar do início" else null, "Áudio", "Ajustes de som (voz e ambiente)", "Legendas", "Ajuste de tela", if (seriesActive) "Temporadas e episódios" else null, "Informações")
         "audio" -> {
             val l = ArrayList<String>()
             var n = 1
@@ -1343,6 +1380,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "main" -> {
                 pmSel = 0
                 pmenu = when {
+                    sel.startsWith("Começar") -> {
+                        pb.restart()
+                        showToast("Começando do início")
+                        null
+                    }
                     sel.startsWith("Ajustes de som") -> {
                         // editor de som por cima do vídeo: mexe e ouve o resultado na hora
                         sndSel = 0
@@ -1462,6 +1504,34 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
 
+    // teste automático (só debug): toca, confere áudio, pula 10 s, sai e volta para conferir a retomada
+    LaunchedEffect(Unit) {
+        val tu = testUrl ?: return@LaunchedEffect
+        val L = { m: String -> android.util.Log.i("AuroraTest", m) }
+        delay(6000)
+        Store.resumeSet(tu, 0L)
+        val c = mkCard("Teste de áudio", "Filme", "vod", 1, tu)
+        play(c, emptyList())
+        for (i in 0 until 24) {
+            delay(1000)
+            val p = pb.player
+            val af = p.audioFormat
+            L("t=$i state=${p.playbackState} playing=${p.isPlaying} pos=${p.currentPosition} vol=${p.volume} audio=${af?.sampleMimeType} ch=${af?.channelCount} rate=${af?.sampleRate} session=${p.audioSessionId} video=${p.videoFormat?.width}x${p.videoFormat?.height} diag=${pb.diag?.title}")
+        }
+        val before = pb.player.currentPosition
+        playerAct("right")
+        delay(1500)
+        L("SEEK +10s: antes=$before depois=${pb.player.currentPosition}")
+        val saved = pb.player.currentPosition
+        playerAct("back")
+        delay(1500)
+        L("SAIU: guardado=${Store.resumeGet(tu)} (posição ao sair=$saved)")
+        play(c, emptyList())
+        delay(8000)
+        L("RETOMADA: voltou em ${pb.player.currentPosition} ms (esperado perto de $saved) resumedFrom=${pb.resumedFrom}")
+        L("FIM DO TESTE")
+    }
+
     fun act(a: String) {
         if (zone != Z.PLAYER && !(zone == Z.SOUND && sndFromPlayer)) Sound.click()
         when (zone) {
@@ -1499,6 +1569,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             keysLvl = (keysLvl + d + KEYS_NAMES.size) % KEYS_NAMES.size
                             Store.keySound = keysLvl
                             Sound.keyType = keysLvl
+                            Sound.click()
+                        }
+                        "kv" -> {
+                            Store.keyVol = (Store.keyVol + d).coerceIn(0, 10)
+                            Sound.keyVol = Store.keyVol
+                            eqTick++
                             Sound.click()
                         }
                         "reset" -> {}
@@ -1703,19 +1779,19 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
 @Composable
 private fun Sidebar(nav: Int, focused: Boolean) {
-    val inf = rememberInfiniteTransition(label = "fl")
-    val fy by inf.animateFloat(
-        initialValue = -2.5f, targetValue = 2.5f,
-        animationSpec = infiniteRepeatable(tween(3500), RepeatMode.Reverse),
-        label = "fy"
-    )
+    // menu parado, mas "sobre" o fundo: sombra por trás e borda de vidro mais clara em cima
     val shape = RoundedCornerShape(u(44))
     val k = LocalK.current
     val fontPx = with(LocalDensity.current) { (20f * k).dp.toPx() }
     Box(
         Modifier.padding(start = u(22), top = u(22), bottom = u(22)).width(u(258)).fillMaxHeight()
-            .graphicsLayer { translationY = fy * density }
-            .clip(shape).background(ThemeState.pal.glass).border(BorderStroke(u(1), Color(0x2EFFFFFF)), shape)
+            .graphicsLayer {
+                shadowElevation = 28f * density
+                this.shape = shape
+                clip = false
+            }
+            .clip(shape).background(ThemeState.pal.glass)
+            .border(BorderStroke(u(1.2f), Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x1AFFFFFF), Color(0x0DFFFFFF)))), shape)
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = u(14), vertical = u(24))) {
             Box(Modifier.padding(start = u(10), bottom = u(8))) { LogoSmall(fontPx) }
@@ -1857,8 +1933,10 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
 private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
     val shape = RoundedCornerShape(u(18))
     Box(Modifier.fillMaxWidth().height(u(254)).clip(shape)) {
-        val art = if (c != null && c.img.isNotEmpty()) rememberCardImage(c) else null
-        if (scene) {
+        val art = if (c != null && (c.img.isNotEmpty() || c.kind == "app")) rememberCardImage(c) else null
+        if (c != null && c.kind == "app") {
+            StreamHero(c, art)
+        } else if (scene) {
             FamilyScene(Modifier.fillMaxSize())
         } else if (art != null) {
             // cena do conteúdo: capa ampliada e desfocada ao fundo, com zoom lento, e a capa nítida à direita
@@ -1898,7 +1976,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
         )
         if (c != null && c.kind == "quote") Coin(c.name, Modifier.align(Alignment.CenterEnd).padding(end = u(70)), u(170))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0xFF0A0C10))))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = u(34), bottom = u(30), end = if (art != null) u(200) else u(34))) {
+        Column(Modifier.align(Alignment.BottomStart).padding(start = u(34), bottom = u(30), end = if (c?.kind == "app") u(440) else if (art != null) u(200) else u(34))) {
             val tag = when {
                 c == null -> secName.uppercase()
                 c.kind == "login" -> "TV AO VIVO"
@@ -1916,7 +1994,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c == null -> ""
                     c.kind == "login" -> "Conecte a sua conta licenciada e os canais entram aqui."
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
-                    scene -> "OK abre o app · a conta é a sua, dentro do próprio serviço"
+                    scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
                     c.kind == "antenna" -> "OK abre a TV da TCL na entrada de antena"
                     else -> "OK abre · OK duas vezes favorita"
                 },
@@ -2098,14 +2176,14 @@ private fun settingBody(
             "• Cratera ao sol: sol intenso brilhando sobre a cratera" + nl +
             "• Marte: tempestade de poeira rosada e sol fraco" + nl +
             "• Tempestade em Júpiter: raios sobre o oceano dourado" + nl +
-            "• Mundo vulcânico: lava pulsando, brasas e fumaça" + nl +
+            "• Vênus vulcânico: névoa de enxofre, lava escorrendo, brasas e calor" + nl +
             "• Terra vista da Lua: a Terra brilhando sobre o solo lunar" + nl + nl +
             "Cartões e menu mudam de cor para combinar com o fundo."
         "Canais fora do ar" -> tip + nl + nl + "O app marca cada canal: verde = online, amarelo = instável, vermelho = fora do ar. A marcação vem de quando você assiste e de um teste leve, a cada 30 minutos, só dos seus favoritos e recentes (para não sobrecarregar o servidor)." + nl + nl + "Ocultar esconde das abas os canais marcados como fora do ar."
         "Meteoro ao apertar OK" -> tip + nl + nl + "Mostra um meteoro azul passando no alto da tela quando você aperta OK para entrar numa seção. A animação de abertura não muda."
         "Rede e internet" -> {
             val unused = netTick + 0
-            networkInfo(context) + nl + nl + "Velocidade de download: $speed" + nl + "OK mede agora (baixa cerca de 10 MB)."
+            networkInfo(context) + nl + nl + "Internet: $speed" + nl + "OK mede agora a velocidade e o tempo de resposta (baixa cerca de 10 MB)."
         }
         "Guia de imagem (TCL A400M)" ->
             "Ajustes recomendados no menu da própria TCL:" + nl +
@@ -2247,7 +2325,7 @@ private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier
         zone == Z.CONTENT -> "setas movem · OK abre · OK 2x favorita · Voltar sai"
         else -> "▲▼ menu · ▶ ou OK entra"
     }
-    Text(t, color = Color(0x99C8D4E8), fontSize = ts(13), maxLines = 1, modifier = modifier.padding(start = u(316), bottom = u(14), end = u(380)))
+    Text(t, color = CLight, fontSize = ts(13), maxLines = 1, modifier = modifier.padding(start = u(316), bottom = u(14), end = u(380)))
 }
 
 @Composable
@@ -2403,14 +2481,68 @@ private fun PlayerScreen(
                     }
                     Text(cc.name, color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (epg.isNotEmpty()) Text(epg, color = CAccent, fontSize = ts(17), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (cc.kind != "stream") TimeBar(pb, osdTick)
                     Text(
-                        if (cc.kind == "stream") "▲▼ trocam de canal · Voltar sai" else "▲ menu (áudio, legendas, tela) · ◀ ▶ pulam 10 s · OK pausa · Voltar sai",
+                        if (cc.kind == "stream") "▲▼ trocam de canal · Voltar sai" else "▲ menu (áudio, legendas, tela, começar do início) · ◀ ▶ pulam 10 s · OK pausa · Voltar sai",
                         color = CLight, fontSize = ts(16)
                     )
                 }
             }
         }
     }
+}
+
+private fun hms(ms: Long): String {
+    val t = max(0L, ms) / 1000
+    val h = t / 3600
+    val m = (t % 3600) / 60
+    val sec = t % 60
+    return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
+}
+
+/** Linha do tempo do filme: decorrido, barra (com o que já carregou), quanto falta e duração total. */
+@Composable
+private fun TimeBar(pb: Playback, osdTick: Int) {
+    val player = pb.player
+    var pos by remember { mutableStateOf(0L) }
+    var dur by remember { mutableStateOf(0L) }
+    var buf by remember { mutableStateOf(0L) }
+    var playing by remember { mutableStateOf(true) }
+    LaunchedEffect(player, osdTick) {
+        while (true) {
+            pos = player.currentPosition
+            dur = player.duration.let { if (it == androidx.media3.common.C.TIME_UNSET) 0L else it }
+            buf = player.bufferedPosition
+            playing = player.playWhenReady
+            delay(250)
+        }
+    }
+    Spacer(Modifier.height(u(10)))
+    if (pb.resumedFrom > 0L && pos < pb.resumedFrom + 20_000L) {
+        Text("Continuando de onde você parou (" + hms(pb.resumedFrom) + ") · ▲ menu → Começar do início", color = CAccent, fontSize = ts(15))
+        Spacer(Modifier.height(u(6)))
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text((if (playing) "▶ " else "❚❚ ") + hms(pos), color = CInk, fontSize = ts(18), fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(u(16)))
+        val f = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        val fb = if (dur > 0) (buf.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        val acc = CAccent
+        androidx.compose.foundation.Canvas(Modifier.weight(1f).height(u(18))) {
+            val y = size.height / 2
+            val th = size.height * 0.32f
+            drawLine(Color(0x40FFFFFF), Offset(0f, y), Offset(size.width, y), th, cap = StrokeCap.Round)
+            drawLine(Color(0x66FFFFFF), Offset(0f, y), Offset(size.width * fb, y), th, cap = StrokeCap.Round)
+            drawLine(acc, Offset(0f, y), Offset(size.width * f, y), th, cap = StrokeCap.Round)
+            drawCircle(Color.White, size.height * 0.42f, Offset(size.width * f, y))
+        }
+        Spacer(Modifier.width(u(16)))
+        Text(
+            if (dur > 0) "-" + hms(dur - pos) + "  ·  " + hms(dur) else "--:--",
+            color = CLight, fontSize = ts(18), fontWeight = FontWeight.SemiBold
+        )
+    }
+    Spacer(Modifier.height(u(8)))
 }
 
 @Composable
@@ -2588,6 +2720,7 @@ class SoundRow(val key: String, val label: String, val group: String)
 
 private val SOUND_ROWS = listOf(
     SoundRow("keys", "Som das teclas", "Teclas"),
+    SoundRow("kv", "Volume das teclas", "Teclas"),
     SoundRow("vt", "Agudo (clareza)", "Voz"),
     SoundRow("vb", "Grave (corpo)", "Voz"),
     SoundRow("va", "Acústico (presença)", "Voz"),
@@ -2632,6 +2765,22 @@ private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int, overVideo: Bool
                         "music" -> Text(SOUND_NAMES[music], color = if (on) Color.Black else CInk, fontSize = ts(16))
                         "keys" -> Text(KEYS_NAMES[keys], color = if (on) Color.Black else CInk, fontSize = ts(16))
                         "reset" -> Text("OK", color = if (on) Color.Black else CDim, fontSize = ts(16))
+                        "kv" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            val v = Store.keyVol
+                            for (k in 1..10) {
+                                Box(
+                                    Modifier.padding(horizontal = u(1.5f)).width(u(12)).height(u(6 + k))
+                                        .background(
+                                            if (k <= v) (if (on) Color(0xFF1E6FD9) else CAccent) else if (on) Color(0xFFDDDDDD) else Color(0x33FFFFFF),
+                                            RoundedCornerShape(u(3))
+                                        )
+                                )
+                            }
+                            Text(
+                                if (v == 0) "mudo" else "${v * 10}%", color = if (on) Color.Black else CInk, fontSize = ts(15),
+                                fontWeight = FontWeight.Bold, modifier = Modifier.width(u(58)), textAlign = TextAlign.End
+                            )
+                        }
                         else -> {
                             val v = Store.eqVal(r.key)
                             // barra de -5 a +5 com o zero no meio
@@ -2659,6 +2808,76 @@ private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int, overVideo: Bool
             }
             Spacer(Modifier.height(u(10)))
             Text("▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva", color = CDim, fontSize = ts(13))
+        }
+    }
+}
+
+/** Cor de cada serviço, só para o brilho e o fundo do destaque. */
+private fun brandColor(name: String): Color {
+    val n = Iptv.norm(name)
+    return when {
+        n.startsWith("netflix") -> Color(0xFFE50914)
+        n.startsWith("prime") -> Color(0xFF00A8E1)
+        n.startsWith("disney") -> Color(0xFF113CCF)
+        n.startsWith("max") || n.startsWith("hbo") -> Color(0xFF5B2DFF)
+        n.startsWith("apple") -> Color(0xFFB8B8C0)
+        n.startsWith("globoplay") -> Color(0xFFFB4D3D)
+        n.startsWith("youtube") -> Color(0xFFFF0000)
+        n.startsWith("pluto") -> Color(0xFFFFE600)
+        n.startsWith("mercado") -> Color(0xFFFFE600)
+        n.startsWith("plex") -> Color(0xFFE5A00D)
+        else -> Color(0xFF6CC6FF)
+    }
+}
+
+/**
+ * Destaque dos Streams: o banner oficial que o app do serviço instala na TV, grande, com zoom lento,
+ * reflexo de luz passando e brilho na cor do serviço. Sem o app instalado: nome e cor do serviço.
+ */
+@Composable
+private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap?) {
+    val bc = brandColor(c.name)
+    val inf = rememberInfiniteTransition(label = "sh")
+    val kb by inf.animateFloat(1.0f, 1.06f, infiniteRepeatable(tween(9000), RepeatMode.Reverse), label = "kb")
+    val sweep by inf.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(4200, easing = androidx.compose.animation.core.LinearEasing)), label = "sw")
+    val glow by inf.animateFloat(0.35f, 0.75f, infiniteRepeatable(tween(2600), RepeatMode.Reverse), label = "gl")
+    Box(Modifier.fillMaxSize()) {
+        if (banner != null) {
+            androidx.compose.foundation.Image(
+                Img.soft(banner), null, Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bc.copy(alpha = 0.55f), Color(0xE6050608)))))
+        val bs = RoundedCornerShape(u(14))
+        Box(
+            Modifier.align(Alignment.CenterEnd).padding(end = u(34)).width(u(380)).height(u(214))
+                .drawBehind {
+                    drawRoundRect(bc.copy(alpha = glow * 0.55f), Offset(-14f * density, -14f * density), Size(size.width + 28f * density, size.height + 28f * density), CornerRadius(26f * density))
+                }
+                .graphicsLayer { scaleX = kb; scaleY = kb }
+                .clip(bs)
+                .border(BorderStroke(u(2), Brush.verticalGradient(listOf(Color(0xAAFFFFFF), bc.copy(alpha = 0.6f)))), bs)
+        ) {
+            if (banner != null) {
+                androidx.compose.foundation.Image(banner, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            } else {
+                Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bc, Color(0xFF0A0A0F)))), contentAlignment = Alignment.Center) {
+                    Text(c.name, color = Color.White, fontSize = ts(40), fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            // reflexo de luz atravessando o banner
+            Box(
+                Modifier.fillMaxSize().drawBehind {
+                    val x = sweep * size.width
+                    drawRect(
+                        Brush.linearGradient(
+                            listOf(Color.Transparent, Color(0x55FFFFFF), Color.Transparent),
+                            start = Offset(x - 120f * density, 0f), end = Offset(x + 120f * density, size.height)
+                        )
+                    )
+                }
+            )
         }
     }
 }

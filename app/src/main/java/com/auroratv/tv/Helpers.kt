@@ -10,31 +10,80 @@ fun networkInfo(context: android.content.Context): String {
     val nl = "\n"
     return try {
         val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        val net = cm.activeNetwork
+        val caps = cm.getNetworkCapabilities(net)
+        val lp = cm.getLinkProperties(net)
         val tipo = when {
             caps == null -> "sem conexão"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Cabo de rede (Ethernet)"
             caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Cabo de rede"
             caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "Dados móveis"
             else -> "desconhecida"
         }
-        var linhas = "Conexão: $tipo"
-        try {
-            val wm = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-            val info = wm.connectionInfo
-            if (info != null && tipo == "Wi-Fi") {
-                val ssid = info.ssid?.replace("\"", "") ?: ""
-                if (ssid.isNotEmpty() && !ssid.contains("unknown", true)) linhas += nl + "Rede: $ssid"
-                val ipi = info.ipAddress
-                if (ipi != 0) linhas += nl + "IP: " + "%d.%d.%d.%d".format(ipi and 0xff, (ipi shr 8) and 0xff, (ipi shr 16) and 0xff, (ipi shr 24) and 0xff)
-                if (info.linkSpeed > 0) linhas += nl + "Velocidade do link Wi-Fi: ${info.linkSpeed} Mbps"
-                linhas += nl + "Sinal: ${info.rssi} dBm"
+        val out = ArrayList<String>()
+        out.add("Conexão: $tipo")
+        if (tipo == "Wi-Fi") {
+            try {
+                val wm = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                val info = wm.connectionInfo
+                if (info != null) {
+                    val ssid = info.ssid?.replace("\"", "") ?: ""
+                    out.add(
+                        "Rede: " + if (ssid.isNotEmpty() && !ssid.contains("unknown", true)) ssid
+                        else "(permita a localização para o app mostrar o nome do Wi-Fi)"
+                    )
+                    val f = info.frequency
+                    val faixa = when {
+                        f >= 5925 -> "6 GHz"
+                        f >= 4900 -> "5 GHz"
+                        f > 0 -> "2,4 GHz"
+                        else -> "?"
+                    }
+                    val canal = when {
+                        f in 2412..2484 -> if (f == 2484) 14 else (f - 2407) / 5
+                        f in 5000..5900 -> (f - 5000) / 5
+                        f >= 5925 -> (f - 5950) / 5
+                        else -> 0
+                    }
+                    out.add("Faixa: $faixa" + if (canal > 0) " · canal $canal" else "")
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        val std = when (info.wifiStandard) {
+                            4 -> "Wi-Fi 4 (802.11n)"
+                            5 -> "Wi-Fi 5 (802.11ac)"
+                            6 -> "Wi-Fi 6 (802.11ax)" + if (f >= 5925) " · 6E" else ""
+                            7 -> "Wi-Fi 6E/7"
+                            8 -> "Wi-Fi 7 (802.11be)"
+                            1 -> "Wi-Fi antigo (a/b/g)"
+                            else -> ""
+                        }
+                        if (std.isNotEmpty()) out.add("Padrão: $std")
+                    }
+                    val rssi = info.rssi
+                    val bars = when {
+                        rssi >= -55 -> "▮▮▮▮ Excelente"
+                        rssi >= -65 -> "▮▮▮▯ Bom"
+                        rssi >= -75 -> "▮▮▯▯ Regular"
+                        else -> "▮▯▯▯ Fraco"
+                    }
+                    out.add("Sinal: $bars ($rssi dBm)")
+                    if (info.linkSpeed > 0) out.add("Velocidade do link: ${info.linkSpeed} Mbps")
+                }
+            } catch (e: Exception) {
             }
-        } catch (e: Exception) {}
-        if (caps != null && caps.linkDownstreamBandwidthKbps > 0) {
-            linhas += nl + "Banda estimada: ${caps.linkDownstreamBandwidthKbps / 1000} Mb/s"
         }
-        linhas
+        try {
+            if (lp != null) {
+                val ip = lp.linkAddresses.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
+                if (ip != null) out.add("IP da TV: $ip")
+                val gw = lp.routes.firstOrNull { it.isDefaultRoute && it.gateway is java.net.Inet4Address }?.gateway?.hostAddress
+                if (gw != null) out.add("Roteador: $gw")
+                val dns = lp.dnsServers.mapNotNull { it.hostAddress }.take(2)
+                if (dns.isNotEmpty()) out.add("DNS: " + dns.joinToString(", "))
+            }
+        } catch (e: Exception) {
+        }
+        if (caps != null && caps.linkDownstreamBandwidthKbps > 0) out.add("Banda estimada: ${caps.linkDownstreamBandwidthKbps / 1000} Mb/s")
+        out.joinToString(nl)
     } catch (e: Exception) {
         "Não foi possível ler os dados da rede."
     }

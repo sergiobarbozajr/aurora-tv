@@ -14,6 +14,29 @@ object Logos {
     private val main = Handler(Looper.getMainLooper())
     private val map = HashMap<String, String>()
 
+    /** Canais abertos da lista pública do Brasil (iptv-org): nome, endereço, logo e categoria. */
+    class Open(val name: String, val url: String, val logo: String, val cat: String)
+
+    @Volatile
+    var open: List<Open> = emptyList()
+        private set
+
+    private fun catOf(group: String): String {
+        val g = group.lowercase()
+        return when {
+            "news" in g -> "Notícias"
+            "relig" in g -> "Religiosos"
+            "kids" in g || "animation" in g -> "Infantil"
+            "educ" in g || "science" in g -> "Educativos"
+            "sport" in g -> "Esporte"
+            "music" in g -> "Música"
+            "legislative" in g || "public" in g -> "Públicos e legislativos"
+            "documentary" in g -> "Documentários"
+            "movies" in g || "series" in g || "entertainment" in g || "general" in g || "culture" in g || "lifestyle" in g || "comedy" in g -> "Variedades"
+            else -> "Outros"
+        }
+    }
+
     private val SOURCES = listOf(
         "https://iptv-org.github.io/iptv/countries/br.m3u",
         "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_brazil.m3u8"
@@ -44,15 +67,31 @@ object Logos {
                     }
                     if (c.responseCode !in 200..299) continue
                     val body = c.inputStream.bufferedReader().use { it.readText() }
-                    for (line in body.lineSequence()) {
-                        if (!line.startsWith("#EXTINF")) continue
-                        var logo = ""
-                        for (m in attr.findAll(line)) if (m.groupValues[1].equals("tvg-logo", true)) logo = m.groupValues[2]
-                        if (logo.isBlank() || !logo.startsWith("http")) continue
-                        val name = line.substringAfterLast(",").trim()
-                        val k = key(name)
-                        if (k.isNotEmpty()) synchronized(map) { map.putIfAbsent(k, logo) }
+                    val chans = ArrayList<Open>()
+                    var pName = ""
+                    var pLogo = ""
+                    var pGroup = ""
+                    for (raw in body.lineSequence()) {
+                        val line = raw.trim()
+                        if (line.startsWith("#EXTINF")) {
+                            var logo = ""
+                            var group = ""
+                            for (m in attr.findAll(line)) {
+                                if (m.groupValues[1].equals("tvg-logo", true)) logo = m.groupValues[2]
+                                if (m.groupValues[1].equals("group-title", true)) group = m.groupValues[2]
+                            }
+                            val name = line.substringAfterLast(",").trim()
+                            pName = name.replace(Regex("\\[.*?\\]"), "").replace(Regex("\\((\\d{3,4}p)\\)"), "").replace(Regex("\\s+"), " ").trim()
+                            pLogo = logo
+                            pGroup = group
+                            val k = key(name)
+                            if (k.isNotEmpty() && logo.startsWith("http")) synchronized(map) { map.putIfAbsent(k, logo) }
+                        } else if (line.isNotEmpty() && !line.startsWith("#") && pName.isNotEmpty()) {
+                            if (src.contains("iptv-org") && line.startsWith("http")) chans.add(Open(pName, line, pLogo, catOf(pGroup)))
+                            pName = ""
+                        }
                     }
+                    if (chans.isNotEmpty()) open = chans.distinctBy { it.name.lowercase() }
                 } catch (e: Throwable) {
                 }
             }

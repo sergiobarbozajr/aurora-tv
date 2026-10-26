@@ -2,7 +2,7 @@ name: Teste de abertura (emulador)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'teste-*' ]
   workflow_dispatch:
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
           target: default
           disable-animations: true
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -memory 3072
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
@@ -41,6 +41,42 @@ jobs:
             adb logcat -d > logcat.txt
             adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png screen.png || true
             adb shell pidof com.auroratv.tv || echo "APP NAO ESTA RODANDO" > dead.txt
+      - name: Teste de audio, retomada e fluidez
+        if: always()
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-animations: false
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop com.auroratv.tv
+            adb logcat -c
+            adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+            sleep 20
+            adb shell dumpsys audio | grep -iE "AudioPlaybackConfiguration|state:started|usage=USAGE_MEDIA" | head -8 > audio.txt || true
+            sleep 30
+            adb logcat -d -s AuroraTest:I > test.txt || true
+            adb shell input keyevent KEYCODE_BACK
+            sleep 3
+            adb shell dumpsys gfxinfo com.auroratv.tv reset > /dev/null
+            for i in $(seq 1 12); do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
+            for i in $(seq 1 6); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
+            for i in $(seq 1 12); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
+            sleep 2
+            adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
+      - name: Resultado do teste
+        if: always()
+        run: |
+          T=$(grep -E "t=(2|6|12|20) |SEEK|SAIU|RETOMADA|FIM" test.txt | sed 's/.*AuroraTest: //' | cut -c1-230 | tr '\n' '|' | cut -c1-3000)
+          echo "::warning title=Teste::$T"
+          A=$(cat audio.txt | cut -c1-200 | tr '\n' '|' | cut -c1-1500)
+          echo "::warning title=Audio::$A"
+          G=$(cat gfx.txt | tr '\n' '|')
+          echo "::warning title=Fluidez::$G"
       - name: Resumo do erro
         if: always()
         run: |
@@ -54,3 +90,6 @@ jobs:
           path: |
             logcat.txt
             screen.png
+            test.txt
+            gfx.txt
+            audio.txt
