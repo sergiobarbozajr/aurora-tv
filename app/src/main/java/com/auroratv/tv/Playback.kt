@@ -116,8 +116,8 @@ class Playback(private val context: Context) {
 
     private fun build(): ExoPlayer {
         val load = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(30000, 120000, 2000, 5000)
-            .setPrioritizeTimeOverSizeThresholds(true)
+            // buffer equilibrado para a memória da TV: menos pausas por falta de RAM e coleta de lixo
+            .setBufferDurationsMs(15000, 50000, 1500, 3000)
             .build()
         // se o decodificador principal da TV falhar, tenta o próximo disponível
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)

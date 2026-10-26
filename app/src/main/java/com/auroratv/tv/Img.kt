@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.drawable.toBitmap
@@ -25,6 +26,24 @@ object Img {
     private val failed = HashSet<String>()
 
     fun peek(key: String): ImageBitmap? = cache.get(key)
+
+    private val softCache = LruCache<ImageBitmap, ImageBitmap>(24)
+
+    /** Versão desfocada barata: a imagem reduzida a 48 px e ampliada de volta (sem efeito pesado na GPU). */
+    fun soft(src: ImageBitmap): ImageBitmap {
+        softCache.get(src)?.let { return it }
+        return try {
+            val b = src.asAndroidBitmap()
+            val w = 48
+            val h = maxOf(1, (b.height * w) / maxOf(1, b.width))
+            val small = android.graphics.Bitmap.createScaledBitmap(b, w, h, true)
+            val r = small.asImageBitmap()
+            softCache.put(src, r)
+            r
+        } catch (e: Throwable) {
+            src
+        }
+    }
 
     suspend fun web(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
         cache.get(url)?.let { return@withContext it }

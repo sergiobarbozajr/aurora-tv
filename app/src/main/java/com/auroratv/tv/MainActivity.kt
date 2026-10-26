@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Store.init(this)
         Sound.init(this)
-        Sound.keysOn = Store.keySound == 1
+        Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Store.musicUri = ""
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
@@ -487,7 +487,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         Sound.setPaused(v)
     }
     LaunchedEffect(Unit) {
-        Sound.apply(Store.sound)
+        Sound.apply(0) // sem música no app
         AudioFx.apply(Store.eq())
     }
     LaunchedEffect(nav, zone) {
@@ -1028,9 +1028,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 Sound.apply(soundLvl)
             }
             "keys" -> {
-                keysLvl = 1 - keysLvl
+                keysLvl = (keysLvl + d + KEYS_NAMES.size) % KEYS_NAMES.size
                 Store.keySound = keysLvl
-                Sound.keysOn = keysLvl == 1
+                Sound.keyType = keysLvl
                 Sound.click()
             }
             "musicfile" -> {
@@ -1484,9 +1484,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             Sound.apply(soundLvl)
                         }
                         "keys" -> {
-                            keysLvl = 1 - keysLvl
+                            keysLvl = (keysLvl + d + KEYS_NAMES.size) % KEYS_NAMES.size
                             Store.keySound = keysLvl
-                            Sound.keysOn = keysLvl == 1
+                            Sound.keyType = keysLvl
+                            Sound.click()
                         }
                         "reset" -> {}
                         else -> {
@@ -1502,7 +1503,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     "left" -> step(-1)
                     "right" -> step(1)
                     "ok" -> if (row.key == "reset") {
-                        for (r in SOUND_ROWS) if (r.group != "Geral" && r.key != "reset") Store.setEqVal(r.key, 0)
+                        for (r in SOUND_ROWS) if (r.group != "Teclas" && r.key != "reset") Store.setEqVal(r.key, 0)
                         AudioFx.apply(Store.eq())
                         eqTick++
                         showToast("Som restaurado ao padrão")
@@ -1853,8 +1854,8 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
             androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "hero") { img ->
                 Box(Modifier.fillMaxSize()) {
                     androidx.compose.foundation.Image(
-                        img, null,
-                        Modifier.fillMaxSize().graphicsLayer { scaleX = kb; scaleY = kb }.blur(u(18)),
+                        Img.soft(img), null,
+                        Modifier.fillMaxSize().graphicsLayer { scaleX = kb; scaleY = kb },
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
                     Box(Modifier.fillMaxSize().background(Color(0x66000000)))
@@ -1948,7 +1949,7 @@ private fun ContentScreen(
         if (withHero) {
             // imagens passando: sem foco num cartão com imagem, o destaque troca sozinho a cada 7 s
             val slides = remember(rows) {
-                rows.flatMap { it.cards }.filter { it.img.isNotEmpty() && it.kind != "app" }.distinctBy { it.name }.take(14)
+                rows.take(6).flatMap { it.cards.take(20) }.filter { it.img.isNotEmpty() && it.kind != "app" }.distinctBy { it.name }.take(14)
             }
             var slide by remember(slides) { mutableStateOf(0) }
             LaunchedEffect(slides) {
@@ -2068,7 +2069,7 @@ private fun settingBody(
         }
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
-        "Som do aplicativo" -> "OK abre o editor de som:" + nl + "• Música do app e sons das teclas" + nl + "• Voz: agudo, grave e acústico" + nl + "• Som de ambiente: agudo, grave e acústico" + nl + "• Volume da voz separado do volume do ambiente" + nl + nl + "Vale para canais, filmes e séries. A voz é separada pela faixa de frequência dos diálogos." + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Som do aplicativo" -> "OK abre o editor de som:" + nl + "• Som das teclas: 6 estilos ou desligado" + nl + "• Voz: agudo, grave e acústico" + nl + "• Som de ambiente: agudo, grave e acústico" + nl + "• Volume da voz separado do volume do ambiente" + nl + nl + "Vale para canais, filmes e séries. A voz é separada pela faixa de frequência dos diálogos." + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
         "Sons das teclas" -> tip + nl + nl + "Um toque curto e baixo a cada botão do controle, como o teclado de um celular. Não toca durante os vídeos."
         "Música do aparelho" -> tip + nl + nl + "Escolha uma música sua para tocar no lugar do tema do app. O app procura os arquivos de áudio no pendrive ligado à TV e na memória dela." + nl + nl + "A primeira vez, o Android pede permissão para o app ver as músicas." + nl + nl + "O volume segue a opção Som do aplicativo."
         "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AuroraTV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
@@ -2572,8 +2573,7 @@ private fun Coin(name: String, modifier: Modifier, size: Dp) {
 class SoundRow(val key: String, val label: String, val group: String)
 
 private val SOUND_ROWS = listOf(
-    SoundRow("music", "Música do app", "Geral"),
-    SoundRow("keys", "Sons das teclas", "Geral"),
+    SoundRow("keys", "Som das teclas", "Teclas"),
     SoundRow("vt", "Agudo (clareza)", "Voz"),
     SoundRow("vb", "Grave (corpo)", "Voz"),
     SoundRow("va", "Acústico (presença)", "Voz"),

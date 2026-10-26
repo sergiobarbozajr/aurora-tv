@@ -55,8 +55,15 @@ fun frameClock(active: Boolean): State<Long> {
     val s = remember { mutableStateOf(0L) }
     LaunchedEffect(active) {
         if (active) {
+            // 30 quadros por segundo bastam para o fundo; sobra processamento para a navegação
+            var last = 0L
             while (true) {
-                androidx.compose.runtime.withFrameNanos { s.value = it }
+                androidx.compose.runtime.withFrameNanos {
+                    if (it - last >= 32_000_000L) {
+                        last = it
+                        s.value = it
+                    }
+                }
             }
         }
     }

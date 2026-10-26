@@ -67,33 +67,63 @@ object Sound {
         }
     }
 
-    /** Toque curto de tecla: dois senos rápidos com queda, bem baixo. */
-    fun click() {
-        if (!keysOn) return
-        try {
-            var t = clickTrack
-            if (t == null) {
-                val n = (0.035 * SR).toInt()
-                val pcm = ShortArray(n)
-                for (i in 0 until n) {
-                    val x = i.toDouble() / SR
-                    val env = exp(-x * 140.0)
-                    val v = (sin(2 * PI * 1750.0 * x) * 0.6 + sin(2 * PI * 2600.0 * x) * 0.25) * env * 0.35
-                    pcm[i] = (v * 32767).toInt().toShort()
-                }
-                t = AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
-                    .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                    .setBufferSizeInBytes(n * 2)
-                    .setTransferMode(AudioTrack.MODE_STATIC)
-                    .build()
-                t.write(pcm, 0, n)
-                clickTrack = t
+    /** Tipo do som de tecla: 0 = desligado; 1 a 6 = estilos. */
+    @Volatile
+    var keyType = 1
+    private val clickExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var clickBuilt = -1
+
+    private fun clickPcm(type: Int): ShortArray {
+        val dur = when (type) { 3 -> 0.06; 6 -> 0.05; else -> 0.035 }
+        val n = (dur * SR).toInt()
+        val pcm = ShortArray(n)
+        val rnd = java.util.Random(type.toLong())
+        for (i in 0 until n) {
+            val x = i.toDouble() / SR
+            val v = when (type) {
+                // 1 clique suave
+                1 -> (sin(2 * PI * 1750.0 * x) * 0.6 + sin(2 * PI * 2600.0 * x) * 0.25) * exp(-x * 140.0) * 0.35
+                // 2 tecla de celular (dois tons, como o discador)
+                2 -> (sin(2 * PI * 852.0 * x) + sin(2 * PI * 1336.0 * x)) * 0.5 * exp(-x * 60.0) * 0.32
+                // 3 bolha (tom que sobe)
+                3 -> sin(2 * PI * (500.0 + 2600.0 * x / dur) * x) * exp(-x * 55.0) * 0.38
+                // 4 madeira (batida curta e grave)
+                4 -> (sin(2 * PI * 620.0 * x) * 0.7 + (rnd.nextDouble() * 2 - 1) * 0.3) * exp(-x * 190.0) * 0.45
+                // 5 cristal (agudo com brilho)
+                5 -> (sin(2 * PI * 3520.0 * x) * 0.5 + sin(2 * PI * 5280.0 * x) * 0.3) * exp(-x * 90.0) * 0.25
+                // 6 digital (bipe quadrado curto)
+                else -> (if (sin(2 * PI * 1200.0 * x) >= 0) 1.0 else -1.0) * exp(-x * 70.0) * 0.12
             }
-            t.stop()
-            t.reloadStaticData()
-            t.play()
-        } catch (e: Throwable) {
+            pcm[i] = (v * 32767).toInt().coerceIn(-32768, 32767).toShort()
+        }
+        return pcm
+    }
+
+    /** Toque de tecla: roda numa linha separada, para não atrasar a navegação. */
+    fun click() {
+        val type = keyType
+        if (type == 0) return
+        clickExec.execute {
+            try {
+                var t = clickTrack
+                if (t == null || clickBuilt != type) {
+                    try { t?.release() } catch (e: Throwable) {}
+                    val pcm = clickPcm(type)
+                    t = AudioTrack.Builder()
+                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                        .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SR).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                        .setBufferSizeInBytes(pcm.size * 2)
+                        .setTransferMode(AudioTrack.MODE_STATIC)
+                        .build()
+                    t.write(pcm, 0, pcm.size)
+                    clickTrack = t
+                    clickBuilt = type
+                }
+                t.stop()
+                t.reloadStaticData()
+                t.play()
+            } catch (e: Throwable) {
+            }
         }
     }
 

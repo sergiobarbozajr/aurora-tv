@@ -95,7 +95,7 @@ val SOUND_NAMES = listOf("Desligado", "Tema espacial · baixo", "Tema espacial �
 val METEOR_NAMES = listOf("Ligado", "Desligado")
 val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto", "Plutão gelado", "Cratera ao sol", "Marte", "Tempestade em Júpiter", "Mundo vulcânico", "Terra vista da Lua")
 val BASS_NAMES = listOf("Desligado", "Médio", "Alto", "Máximo")
-val KEYS_NAMES = listOf("Desligado", "Ligado")
+val KEYS_NAMES = listOf("Desligado", "Clique suave", "Tecla de celular", "Bolha", "Madeira", "Cristal", "Digital")
 val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
 val SCREEN_NAMES = listOf("Original", "Preencher", "Zoom", "16:9", "4:3", "Personalizado")
 
