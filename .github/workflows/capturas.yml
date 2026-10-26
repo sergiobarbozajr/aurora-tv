@@ -26,7 +26,12 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Compilar
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+      - name: Mostrar erros de compilacao
+        if: failure()
+        run: |
+          E=$(grep -E "^e: |error:|FAILED|What went wrong" -A2 build.log | head -30 | cut -c1-300 | tr '\n' '|' | cut -c1-3800)
+          echo "::error title=Erro de compilacao::$E"
       - name: Capturar
         uses: reactivecircus/android-emulator-runner@v2
         with:
