@@ -63,6 +63,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -388,6 +389,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var epTick by remember { mutableStateOf(0) }
     var hideOff by remember { mutableStateOf(Store.hideOffline) }
     var themeIdx by remember { mutableStateOf(Store.theme.coerceIn(0, THEME_NAMES.size - 1)) }
+    var bassLvl by remember { mutableStateOf(Store.bass.coerceIn(0, BASS_NAMES.size - 1)) }
     var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
     var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
     var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -432,7 +434,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         videoPlayingFlag = v
         Sound.setPaused(v)
     }
-    LaunchedEffect(Unit) { Sound.apply(Store.sound) }
+    LaunchedEffect(Unit) {
+        Sound.apply(Store.sound)
+        AudioFx.apply(Store.bass)
+    }
     LaunchedEffect(nav, zone) {
         if (toastCtx != "$nav|$zone") toastMsg = null
     }
@@ -542,6 +547,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r.addAll(newsRows)
                 val h = histCards()
                 if (h.isNotEmpty()) r.add(RowData("Continuar assistindo", h))
+                // destaques da sua lista, com capas, para o Início ter imagens dos conteúdos
+                val fl = (iptvRows["Filmes"] ?: emptyList()).flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(20)
+                if (fl.isNotEmpty()) r.add(RowData("Filmes da sua lista", fl))
+                val sl = (iptvRows["Séries"] ?: emptyList()).flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(20)
+                if (sl.isNotEmpty()) r.add(RowData("Séries da sua lista", sl))
                 r.add(RowData("Abertos pela internet", free.internet))
                 r.add(RowData("Internacionais", free.intl))
                 r.add(RowData("Seus streams", streamRows().flatMap { it.cards }.take(8)))
@@ -904,6 +914,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         "sound" -> SOUND_NAMES[soundLvl]
         "hideoff" -> HIDEOFF_NAMES[hideOff]
         "theme" -> THEME_NAMES[themeIdx]
+        "bass" -> BASS_NAMES[bassLvl]
         else -> METEOR_NAMES[meteorOpt]
     }
 
@@ -927,6 +938,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 soundLvl = (soundLvl + d + SOUND_NAMES.size) % SOUND_NAMES.size
                 Store.sound = soundLvl
                 Sound.apply(soundLvl)
+            }
+            "bass" -> {
+                bassLvl = (bassLvl + d + BASS_NAMES.size) % BASS_NAMES.size
+                Store.bass = bassLvl
+                AudioFx.apply(bassLvl)
             }
             "theme" -> {
                 themeIdx = (themeIdx + d + THEME_NAMES.size) % THEME_NAMES.size
@@ -1651,8 +1667,30 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
 private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
     val shape = RoundedCornerShape(u(18))
     Box(Modifier.fillMaxWidth().height(u(254)).clip(shape)) {
+        val art = if (c != null && c.img.isNotEmpty()) rememberCardImage(c) else null
         if (scene) {
             FamilyScene(Modifier.fillMaxSize())
+        } else if (art != null) {
+            // cena do conteúdo: capa ampliada e desfocada ao fundo, com zoom lento, e a capa nítida à direita
+            val inf = rememberInfiniteTransition(label = "kb")
+            val kb by inf.animateFloat(1.0f, 1.14f, infiniteRepeatable(tween(14000), RepeatMode.Reverse), label = "kbz")
+            androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "hero") { img ->
+                Box(Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.Image(
+                        img, null,
+                        Modifier.fillMaxSize().graphicsLayer { scaleX = kb; scaleY = kb }.blur(u(18)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                    Box(Modifier.fillMaxSize().background(Color(0x66000000)))
+                    androidx.compose.foundation.Image(
+                        img, null,
+                        Modifier.align(Alignment.CenterEnd).padding(end = u(28), top = u(18), bottom = u(18)).fillMaxHeight()
+                            .width(u(146)).clip(RoundedCornerShape(u(12)))
+                            .border(BorderStroke(u(1), Color(0x55FFFFFF)), RoundedCornerShape(u(12))),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+            }
         } else {
             val a = c?.hueA ?: Color(0xFF141A26)
             val b = c?.hueB ?: Color(0xFF080A0F)
@@ -1669,7 +1707,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
             )
         )
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0xFF0A0C10))))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = u(34), bottom = u(30), end = u(34))) {
+        Column(Modifier.align(Alignment.BottomStart).padding(start = u(34), bottom = u(30), end = if (art != null) u(200) else u(34))) {
             val tag = when {
                 c == null -> secName.uppercase()
                 c.kind == "login" -> "TV AO VIVO"
@@ -1731,7 +1769,24 @@ private fun ContentScreen(
     val withHero = sec.kind != "search" && sec.kind != "lists"
     Column(Modifier.fillMaxSize().padding(start = u(336), end = u(36), top = u(30), bottom = u(44))) {
         if (withHero) {
-            HeroView(cur, sec.name == "Streams", cur != null && favs.contains(cur.name), sec.name)
+            // imagens passando: sem foco num cartão com imagem, o destaque troca sozinho a cada 7 s
+            val slides = remember(rows) {
+                rows.flatMap { it.cards }.filter { it.img.isNotEmpty() && it.kind != "app" }.distinctBy { it.name }.take(14)
+            }
+            var slide by remember(slides) { mutableStateOf(0) }
+            LaunchedEffect(slides) {
+                while (slides.size > 1) {
+                    delay(7000)
+                    slide = (slide + 1) % slides.size
+                }
+            }
+            val heroCard = when {
+                active && cur != null && (cur.img.isNotEmpty() || slides.isEmpty()) -> cur
+                active -> cur
+                slides.isNotEmpty() -> slides[slide % slides.size]
+                else -> cur
+            }
+            HeroView(heroCard, sec.name == "Streams", heroCard != null && favs.contains(heroCard.name), sec.name)
             Spacer(Modifier.height(u(18)))
         }
         if (sec.kind == "search") {
@@ -1836,7 +1891,10 @@ private fun settingBody(
         }
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
-        "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial de piano e violino, suave e minimalista, em ciclo. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AuroraTV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
+            "Fora do app (YouTube, Netflix), o app tenta reforçar o som geral da TV; se a TV não permitir, use o ajuste de graves da própria soundbar." + nl +
+            "Se a soundbar recebe o áudio em Dolby/DTS direto (passthrough), o reforço não se aplica: ajuste na soundbar."
         "Tema do app" -> tip + nl + nl + "Muda o fundo do app na hora:" + nl +
             "• Galáxia: nebulosa com estrelas pulsando e poeira estelar" + nl +
             "• Planetas: gigante gasoso com anéis e lua" + nl +

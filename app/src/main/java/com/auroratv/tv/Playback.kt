@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -59,22 +60,45 @@ class Playback(private val context: Context) {
     private var bufferingSec = 0
     private var everReady = false
     private val delays = longArrayOf(1000, 2000, 4000, 8000, 15000, 30000)
+    private var limitMode = false
+    private var limitTries = 0
+    private val triedExt = HashSet<String>()
+
+    /** Tempo máximo esperando o vídeo começar antes de chamar de "sem sinal". */
+    val patienceSec = 25
 
     init {
-        val http = DefaultHttpDataSource.Factory()
-            .setUserAgent("okhttp/4.12.0")
-            .setAllowCrossProtocolRedirects(true) // servidores IPTV costumam redirecionar http <-> https
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
+        // conexão reforçada: OkHttp com pool de conexões, HTTP/2, nova tentativa automática de conexão
+        // e redirecionamentos entre http e https
+        val ok = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .build()
+        val http = OkHttpDataSource.Factory(ok as okhttp3.Call.Factory).setUserAgent("okhttp/4.12.0")
         val load = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20000, 60000, 1500, 4000)
+            .setBufferDurationsMs(30000, 120000, 2000, 5000)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         player = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
             .setLoadControl(load)
             .build()
         player.playWhenReady = true
+        // áudio e legenda em português do Brasil quando o conteúdo tiver essa faixa
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setPreferredAudioLanguages("pt-BR", "pt", "por")
+            .setPreferredTextLanguages("pt-BR", "pt", "por")
+            .build()
+        AudioFx.attach(player.audioSessionId)
         player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                AudioFx.attach(audioSessionId)
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 handleError(error)
             }
@@ -99,11 +123,11 @@ class Playback(private val context: Context) {
             val c = card
             if (c != null && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) {
                 bufferingSec++
-                if (bufferingSec == 15) {
+                if (bufferingSec == patienceSec) {
                     if (everReady && c.kind == "stream") mark(c.name, 2)
                     diag = Diag(
                         "Carregando devagar", "Rede · buffer",
-                        "o vídeo não chegou em 15 s (conexão lenta ou servidor ocupado)",
+                        "o vídeo não chegou em $patienceSec s (conexão lenta ou servidor ocupado)",
                         "reconectando…"
                     )
                     retryLater()
@@ -123,6 +147,9 @@ class Playback(private val context: Context) {
         url = u
         attempt = 0
         swappedFormat = false
+        limitMode = false
+        limitTries = 0
+        triedExt.clear()
         everReady = false
         diag = null
         connecting = true
@@ -169,6 +196,18 @@ class Playback(private val context: Context) {
 
     private fun retryLater() {
         val c = card ?: return
+        if (limitMode) {
+            // conta em uso em outra tela: tenta a cada 10 s, por até 5 minutos, até a outra tela liberar
+            limitTries++
+            if (limitTries > 30) {
+                diag = diag?.let { Diag(it.title, it.layer, it.detail, "a outra tela não liberou · OK tenta de novo · Voltar sai") }
+                return
+            }
+            diag = diag?.let { Diag(it.title, it.layer, it.detail, "reconectando sozinho quando a outra tela fechar · tentativa $limitTries em 10 s") }
+            main.removeCallbacks(retryRun)
+            main.postDelayed(retryRun, 10000)
+            return
+        }
         if (attempt >= delays.size) {
             if (c.kind == "stream") mark(c.name, 3)
             diag = diag?.let { Diag(it.title, it.layer, it.detail, "não voltou depois de ${delays.size} tentativas · OK tenta de novo · Voltar sai") }
@@ -182,6 +221,20 @@ class Playback(private val context: Context) {
     }
 
     private fun swapFormat(): Boolean {
+        // filmes e episódios: tenta as outras extensões que o servidor costuma aceitar
+        if (url.contains("/movie/") || url.contains("/series/")) {
+            val base = url.substringBeforeLast(".")
+            val cur = url.substringAfterLast(".")
+            triedExt.add(cur)
+            for (e in listOf("mp4", "mkv", "ts", "m3u8", "avi")) {
+                if (!triedExt.contains(e)) {
+                    triedExt.add(e)
+                    url = "$base.$e"
+                    return true
+                }
+            }
+            return false
+        }
         if (swappedFormat || !url.contains("/live/")) return false
         val n = when {
             url.endsWith(".m3u8") -> url.removeSuffix(".m3u8") + ".ts"
@@ -214,13 +267,19 @@ class Playback(private val context: Context) {
                 return
             }
             dns -> diag = Diag("Servidor não encontrado", "Rede · DNS", "o nome do servidor não foi resolvido", "tentando de novo")
-            httpCode == 401 || httpCode == 403 -> {
+            httpCode == 401 -> {
+                diag = Diag("Acesso recusado", "Autenticação", "o servidor respondeu 401 (sessão expirada)", "renovando o login")
+                onAuthExpired?.invoke()
+            }
+            httpCode == 403 || httpCode == 429 || httpCode == 458 || httpCode == 509 -> {
+                // quase sempre: a conta já está aberta em outro aparelho ou outro app de IPTV
                 diag = Diag(
-                    "Acesso recusado", "Autenticação",
-                    "o servidor respondeu $httpCode (sessão expirada ou limite de telas da conta)",
+                    "Conta em uso em outra tela", "Autenticação · limite de telas",
+                    "o servidor respondeu $httpCode: o limite de conexões da assinatura foi atingido",
                     "renovando o login"
                 )
-                onAuthExpired?.invoke()
+                if (!limitMode) onAuthExpired?.invoke()
+                limitMode = true
             }
             httpCode == 404 || httpCode == 410 -> {
                 diag = Diag("Canal fora do ar", "Servidor", "o servidor respondeu $httpCode", "tentando outro formato")

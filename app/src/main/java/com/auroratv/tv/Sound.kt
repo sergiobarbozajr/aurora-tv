@@ -160,6 +160,43 @@ object Sound {
             violin(chord[line[c] % chord.size] + 12, t0, 0.055f, 4 * stepSec + 1.0)
         }
 
+        // órgão: acordes longos e graves, entrada bem lenta, como um pad de igreja no espaço
+        fun organ(midi: Int, startSec: Double, amp: Float, durSec: Double) {
+            val f = 440.0 * 2.0.pow((midi - 69) / 12.0)
+            val n = (durSec * SR).toInt()
+            val s0 = (startSec * SR).toInt()
+            val harm = doubleArrayOf(1.0, 0.5, 0.33, 0.22, 0.0, 0.0, 0.0, 0.12)
+            for (i in 0 until n) {
+                val t = i.toDouble() / SR
+                val env = min(1.0, t / 1.6) * min(1.0, (durSec - t) / 1.6).coerceAtLeast(0.0)
+                val ph = 2.0 * PI * f * t
+                var v = 0.0
+                for (h in harm.indices) if (harm[h] > 0) v += harm[h] * sin((h + 1) * ph)
+                val idx = (s0 + i) % total
+                buf[idx] += (v * env * amp).toFloat()
+            }
+        }
+        for (c in 0 until 4) {
+            val chord = chords[c]
+            val t0 = c * 8 * stepSec
+            val dur = 8 * stepSec + 1.6
+            organ(chord[0], t0, 0.05f, dur)
+            organ(chord[1], t0, 0.035f, dur)
+            organ(chord[2], t0, 0.03f, dur)
+        }
+
+        // tique de relógio ao fundo, a cada dois passos (marca o tempo, como na trilha que inspira o tema)
+        val tickLen = (0.012 * SR).toInt()
+        val rnd2 = java.util.Random(3)
+        for (s in 0 until steps step 2) {
+            val s0 = (s * stepSec * SR).toInt()
+            for (i in 0 until tickLen) {
+                val env = 1.0 - i.toDouble() / tickLen
+                val v = (rnd2.nextDouble() * 2 - 1) * env * env * 0.09 + sin(2 * PI * 2400.0 * i / SR) * env * 0.05
+                buf[(s0 + i) % total] += v.toFloat()
+            }
+        }
+
         // eco suave
         val d = (0.38 * SR).toInt()
         val out = buf.copyOf()

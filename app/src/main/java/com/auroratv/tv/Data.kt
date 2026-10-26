@@ -91,9 +91,10 @@ fun streamRows(): List<RowData> {
 
 val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080p)", "HD (720p)", "Economia (480p)")
 val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
-val SOUND_NAMES = listOf("Desligado", "Tema estelar · baixo", "Tema estelar · médio", "Tema estelar · alto")
+val SOUND_NAMES = listOf("Desligado", "Tema espacial · baixo", "Tema espacial · médio", "Tema espacial · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
 val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto")
+val BASS_NAMES = listOf("Desligado", "Médio", "Alto", "Máximo")
 val HIDEOFF_NAMES = listOf("Mostrar", "Ocultar")
 val SCREEN_NAMES = listOf("Original", "Preencher", "Zoom", "16:9", "4:3", "Personalizado")
 
@@ -105,6 +106,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Tema do app", "theme"),
     SettingItem("Clima e cidade", "city"),
     SettingItem("Som do aplicativo", "sound"),
+    SettingItem("Grave (bass) para soundbar", "bass"),
     SettingItem("Meteoro ao apertar OK", "meteor"),
     SettingItem("Canais fora do ar", "hideoff"),
     SettingItem("Rede e internet", null),
@@ -140,7 +142,7 @@ object Store {
         get() = int("city")
         set(v) = putInt("city", v)
     var sound: Int
-        get() = int("sound")
+        get() = int("sound", 2)
         set(v) = putInt("sound", v)
     var meteor: Int
         get() = int("meteor")
@@ -152,6 +154,9 @@ object Store {
     var screenMode: Int
         get() = int("screen_mode")
         set(v) = putInt("screen_mode", v)
+    var bass: Int
+        get() = int("bass")
+        set(v) = putInt("bass", v)
     var theme: Int
         get() = int("theme")
         set(v) = putInt("theme", v)
