@@ -1,0 +1,60 @@
+name: Capturas dos temas (emulador Android 14)
+
+on:
+  push:
+    branches: [ 'teste-*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capturas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Ativar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Compilar
+        run: gradle assembleDebug --no-daemon
+      - name: Capturar
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: false
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 4096
+          script: |
+            mkdir -p cap
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell wm size 1920x1080 || true
+            adb shell wm density 240 || true
+            for th in 0 1 2 3 4 5 6 7 8 9 10; do adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme $th; sleep 16; adb exec-out screencap -p > cap/tema$th.png; done
+            for th in 3 8 9 7; do adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme $th; sleep 14; adb shell screenrecord --time-limit 5 --size 960x540 /sdcard/v$th.mp4 || true; adb pull /sdcard/v$th.mp4 cap/ || true; done
+            adb shell am force-stop com.auroratv.tv
+            adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0 --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+            sleep 22
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            sleep 1
+            adb exec-out screencap -p > cap/player.png
+      - name: Publicar capturas
+        if: always()
+        run: |
+          cd cap || exit 0
+          for f in *.mp4; do [ -f "$f" ] && ffmpeg -loglevel error -y -i "$f" -vf "fps=12,scale=640:-1" "${f%.mp4}.gif" || true; done
+          git init -q && git checkout -q -b capturas
+          git config user.name "AuroraTV CI" && git config user.email "ci@users.noreply.github.com"
+          git add -A && git commit -q -m "capturas $GITHUB_SHA"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" capturas

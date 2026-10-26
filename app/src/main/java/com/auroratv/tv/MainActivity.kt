@@ -137,6 +137,7 @@ var videoPlayingFlag = false
 
 /** Só no APK de teste (debug): endereço tocado sozinho para o teste automático de áudio e retomada. */
 var testUrl: String? = null
+var testTheme = -1
 
 class MainActivity : ComponentActivity() {
     lateinit var speech: ActivityResultLauncher<Intent>
@@ -149,6 +150,7 @@ class MainActivity : ComponentActivity() {
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Sound.keyVol = Store.keyVol
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testUrl = intent?.getStringExtra("aurora_test")
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testTheme = intent?.getIntExtra("aurora_theme", -1) ?: -1
         Store.musicUri = ""
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
@@ -457,7 +459,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var epTick by remember { mutableStateOf(0) }
     var hideOff by remember { mutableStateOf(Store.hideOffline) }
     var themeIdx by remember { mutableStateOf(Store.theme.coerceIn(0, THEME_NAMES.size - 1)) }
-    LaunchedEffect(Unit) { ThemeState.set(themeIdx) }
+    LaunchedEffect(Unit) {
+        if (testTheme in THEME_NAMES.indices) themeIdx = testTheme
+        ThemeState.set(themeIdx)
+    }
     var bassLvl by remember { mutableStateOf(Store.bass.coerceIn(0, BASS_NAMES.size - 1)) }
     var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
     var searchSec by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
