@@ -1,77 +1,106 @@
 package com.auroratv.tv
 
-import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
+import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.PresetReverb
 
 /**
- * Reforço de graves para a soundbar: BassBoost + equalizador nas faixas mais baixas.
- * Vale para tudo o que toca dentro do AuroraTV. Também tenta o mix geral da TV (sessão 0);
- * se o sistema não permitir, fica só no app.
+ * Editor de som do AuroraTV. Separa a faixa de frequências da voz (diálogos, ~250 Hz a 4 kHz)
+ * da faixa do ambiente (graves, agudos e espaço da trilha e dos efeitos) e ajusta cada uma:
+ * agudo, grave, acústico e volume. Equalizador de 11 faixas + limitador para não distorcer.
+ * Vale para tudo o que toca dentro do app.
  */
 object AudioFx {
-    private val strength = intArrayOf(0, 450, 750, 1000)
-    private val eqGainMb = intArrayOf(0, 300, 600, 900)
+    class Eq(
+        val voiceTreble: Int, val voiceBass: Int, val voiceAcoustic: Int,
+        val ambTreble: Int, val ambBass: Int, val ambAcoustic: Int,
+        val voiceVol: Int, val ambVol: Int
+    )
+
+    // centro de cada faixa (Hz)
+    private val cut = floatArrayOf(60f, 120f, 250f, 400f, 630f, 1000f, 1600f, 2500f, 4000f, 8000f, 14000f)
+    private const val STEP_DB = 1.5f
+
     private var session = 0
-    private var level = 0
-    private var bass: BassBoost? = null
-    private var eq: Equalizer? = null
-    private var globalBass: BassBoost? = null
+    private var eq = Eq(0, 0, 0, 0, 0, 0, 0, 0)
+    private var dp: DynamicsProcessing? = null
+    private var reverb: PresetReverb? = null
+    var player: androidx.media3.exoplayer.ExoPlayer? = null
 
     fun attach(s: Int) {
         session = s
         rebuild()
     }
 
-    fun apply(l: Int) {
-        level = l.coerceIn(0, strength.size - 1)
+    fun apply(e: Eq) {
+        eq = e
         rebuild()
     }
 
-    private fun release() {
-        try { bass?.release() } catch (e: Throwable) {}
-        try { eq?.release() } catch (e: Throwable) {}
-        try { globalBass?.release() } catch (e: Throwable) {}
-        bass = null
-        eq = null
-        globalBass = null
+    private fun isFlat(e: Eq) = e.voiceTreble == 0 && e.voiceBass == 0 && e.voiceAcoustic == 0 && e.ambTreble == 0 &&
+        e.ambBass == 0 && e.ambAcoustic == 0 && e.voiceVol == 0 && e.ambVol == 0
+
+    /** Ganho (dB) de cada faixa a partir dos controles. */
+    private fun gains(e: Eq): FloatArray {
+        val g = FloatArray(cut.size)
+        for (i in cut.indices) {
+            val f = cut[i]
+            var v = 0f
+            val voice = f in 250f..4000f
+            // ambiente: graves e agudos fora da voz
+            if (f <= 120f) v += e.ambBass * STEP_DB
+            if (f >= 8000f) v += e.ambTreble * STEP_DB
+            // voz: corpo (grave), presença/madeira (acústico) e clareza (agudo)
+            if (f == 250f || f == 400f) v += e.voiceBass * STEP_DB
+            if (f == 630f || f == 1000f) v += e.voiceAcoustic * STEP_DB
+            if (f == 1600f || f == 2500f || f == 4000f) v += e.voiceTreble * STEP_DB
+            // volumes separados
+            v += (if (voice) e.voiceVol else e.ambVol) * STEP_DB
+            g[i] = v.coerceIn(-12f, 12f)
+        }
+        return g
     }
 
-    private fun boost(b: BassBoost) {
-        if (b.strengthSupported) b.setStrength(strength[level].toShort())
-        b.enabled = true
+    private fun release() {
+        try { dp?.release() } catch (e: Throwable) {}
+        dp = null
+        try { player?.clearAuxEffectInfo() } catch (e: Throwable) {}
+        try { reverb?.release() } catch (e: Throwable) {}
+        reverb = null
     }
 
     private fun rebuild() {
         release()
-        if (level == 0) return
-        if (session != 0) {
-            try {
-                bass = BassBoost(0, session).also { boost(it) }
-            } catch (e: Throwable) {
-            }
-            try {
-                eq = Equalizer(0, session).also { e ->
-                    val range = e.bandLevelRange
-                    val max = range[1].toInt()
-                    val n = e.numberOfBands.toInt()
-                    for (i in 0 until n) {
-                        val hz = e.getCenterFreq(i.toShort()) / 1000
-                        val g = when {
-                            hz <= 100 -> eqGainMb[level]
-                            hz <= 300 -> eqGainMb[level] / 2
-                            else -> 0
-                        }
-                        e.setBandLevel(i.toShort(), minOf(g, max).toShort())
-                    }
-                    e.enabled = true
-                }
-            } catch (e: Throwable) {
-            }
-        }
+        if (session == 0 || isFlat(eq)) return
         try {
-            @Suppress("DEPRECATION")
-            globalBass = BassBoost(0, 0).also { boost(it) }
+            val cfg = DynamicsProcessing.Config.Builder(
+                DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
+                true, cut.size, false, 0, false, 0, true
+            ).build()
+            val d = DynamicsProcessing(0, session, cfg)
+            val g = gains(eq)
+            for (i in cut.indices) d.setPreEqBandAllChannelsTo(i, DynamicsProcessing.EqBand(true, cut[i], g[i]))
+            // limitador: segura os picos quando os ganhos sobem
+            d.setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -1.5f, 0f))
+            d.enabled = true
+            dp = d
         } catch (e: Throwable) {
+        }
+        // acústico do ambiente: sensação de sala (reverberação leve), só para valores positivos
+        if (eq.ambAcoustic > 0) {
+            try {
+                val preset = when (eq.ambAcoustic) {
+                    1, 2 -> PresetReverb.PRESET_SMALLROOM
+                    3 -> PresetReverb.PRESET_MEDIUMROOM
+                    4 -> PresetReverb.PRESET_LARGEROOM
+                    else -> PresetReverb.PRESET_LARGEHALL
+                }
+                val r = PresetReverb(1, 0)
+                r.preset = preset
+                r.enabled = true
+                reverb = r
+                player?.setAuxEffectInfo(androidx.media3.common.AuxEffectInfo(r.id, 0.35f + 0.08f * eq.ambAcoustic))
+            } catch (e: Throwable) {
+            }
         }
     }
 }

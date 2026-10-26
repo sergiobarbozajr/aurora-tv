@@ -106,10 +106,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Realce de imagem", "enh"),
     SettingItem("Tema do app", "theme"),
     SettingItem("Clima e cidade", "city"),
-    SettingItem("Som do aplicativo", "sound"),
-    SettingItem("Música do aparelho", "musicfile"),
-    SettingItem("Sons das teclas", "keys"),
-    SettingItem("Grave (bass) para soundbar", "bass"),
+    SettingItem("Som do aplicativo", null),
     SettingItem("Canais fora do ar", "hideoff"),
     SettingItem("Rede e internet", null),
     SettingItem("Guia de imagem (TCL A400M)", null),
@@ -178,6 +175,12 @@ object Store {
     }
 
     fun anyAcc(): Boolean = (0 until 5).any { acc(it).first.isNotBlank() }
+
+    fun eqVal(k: String): Int = int("eq_$k", 0)
+    fun setEqVal(k: String, v: Int) = putInt("eq_$k", v)
+    fun eq(): AudioFx.Eq = AudioFx.Eq(
+        eqVal("vt"), eqVal("vb"), eqVal("va"), eqVal("at"), eqVal("ab"), eqVal("aa"), eqVal("vv"), eqVal("av")
+    )
 
     var bass: Int
         get() = int("bass")

@@ -112,7 +112,7 @@ private val CCardHi: Color get() = ThemeState.pal.cardHi
 private val CLive = Color(0xFFFF6B81)
 private val CPanel: Color get() = ThemeState.pal.panel
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES, SOUND }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
         Store.init(this)
         Sound.init(this)
         Sound.keysOn = Store.keySound == 1
-        if (Store.musicUri.isNotBlank()) Sound.useFile(Store.musicUri)
+        Store.musicUri = ""
         customKeys = parseKeys(Store.keymap)
         val json = assets.open("catalog.json").bufferedReader().use { it.readText() }
         val catalog = parseCatalog(json)
@@ -393,6 +393,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var iptvSaved by remember { mutableStateOf(Store.anyAcc()) }
     var iptvSlot by remember { mutableStateOf(0) }
     var keysLvl by remember { mutableStateOf(Store.keySound) }
+    var sndSel by remember { mutableStateOf(0) }
+    var eqTick by remember { mutableStateOf(0) }
     var musicFiles by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var iptvRows by remember { mutableStateOf<Map<String, List<RowData>>>(emptyMap()) }
     var iptvTotal by remember { mutableStateOf(0) }
@@ -486,7 +488,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
     LaunchedEffect(Unit) {
         Sound.apply(Store.sound)
-        AudioFx.apply(Store.bass)
+        AudioFx.apply(Store.eq())
     }
     LaunchedEffect(nav, zone) {
         if (toastCtx != "$nav|$zone") toastMsg = null
@@ -1049,7 +1051,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "bass" -> {
                 bassLvl = (bassLvl + d + BASS_NAMES.size) % BASS_NAMES.size
                 Store.bass = bassLvl
-                AudioFx.apply(bassLvl)
+                AudioFx.apply(Store.eq())
             }
             "theme" -> {
                 themeIdx = (themeIdx + d + THEME_NAMES.size) % THEME_NAMES.size
@@ -1171,6 +1173,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     } else showToast("Permita o acesso às músicas e aperte OK de novo.")
                 } else if (ek != null) editing = true
                 else when (item.name) {
+                    "Som do aplicativo" -> {
+                        sndSel = 0
+                        zone = Z.SOUND
+                    }
                     "Rede e internet" -> {
                         speedText = "medindo…"
                         Net.speedTest { speedText = it; netTick++ }
@@ -1468,6 +1474,45 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
             Z.KEYMAP -> {}
+            Z.SOUND -> {
+                val row = SOUND_ROWS[sndSel]
+                fun step(d: Int) {
+                    when (row.key) {
+                        "music" -> {
+                            soundLvl = (soundLvl + d + SOUND_NAMES.size) % SOUND_NAMES.size
+                            Store.sound = soundLvl
+                            Sound.apply(soundLvl)
+                        }
+                        "keys" -> {
+                            keysLvl = 1 - keysLvl
+                            Store.keySound = keysLvl
+                            Sound.keysOn = keysLvl == 1
+                        }
+                        "reset" -> {}
+                        else -> {
+                            Store.setEqVal(row.key, (Store.eqVal(row.key) + d).coerceIn(-5, 5))
+                            AudioFx.apply(Store.eq())
+                            eqTick++
+                        }
+                    }
+                }
+                when (a) {
+                    "up" -> sndSel = max(0, sndSel - 1)
+                    "down" -> sndSel = min(SOUND_ROWS.size - 1, sndSel + 1)
+                    "left" -> step(-1)
+                    "right" -> step(1)
+                    "ok" -> if (row.key == "reset") {
+                        for (r in SOUND_ROWS) if (r.group != "Geral" && r.key != "reset") Store.setEqVal(r.key, 0)
+                        AudioFx.apply(Store.eq())
+                        eqTick++
+                        showToast("Som restaurado ao padrão")
+                    } else step(1)
+                    "back", "home" -> {
+                        zone = Z.CONTENT
+                        showToast("Ajustes de som salvos")
+                    }
+                }
+            }
             Z.READER -> if (a == "back" || a == "ok" || a == "left") zone = Z.CONTENT
             Z.TEST -> when (a) {
                 "back" -> zone = Z.CONTENT
@@ -1614,6 +1659,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
+                    if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick)
                     if (zone == Z.READER) ReaderBox(reader)
                     Hint(zone, sec, editing, kbd, Modifier.align(Alignment.BottomStart))
                     Pill(clock, weatherText, Modifier.align(Alignment.BottomEnd))
@@ -1635,7 +1681,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
         }
-        if (showMain && zone != Z.INTRO) MeteorLayer(tick, engine, true)
         if (zone == Z.INTRO) IntroAnim { finishIntro() }
     }
 }
@@ -2023,7 +2068,7 @@ private fun settingBody(
         }
         "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
-        "Som do aplicativo" -> tip + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
+        "Som do aplicativo" -> "OK abre o editor de som:" + nl + "• Música do app e sons das teclas" + nl + "• Voz: agudo, grave e acústico" + nl + "• Som de ambiente: agudo, grave e acústico" + nl + "• Volume da voz separado do volume do ambiente" + nl + nl + "Vale para canais, filmes e séries. A voz é separada pela faixa de frequência dos diálogos." + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
         "Sons das teclas" -> tip + nl + nl + "Um toque curto e baixo a cada botão do controle, como o teclado de um celular. Não toca durante os vídeos."
         "Música do aparelho" -> tip + nl + nl + "Escolha uma música sua para tocar no lugar do tema do app. O app procura os arquivos de áudio no pendrive ligado à TV e na memória dela." + nl + nl + "A primeira vez, o Android pede permissão para o app ver as músicas." + nl + nl + "O volume segue a opção Som do aplicativo."
         "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AuroraTV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
@@ -2181,6 +2226,7 @@ private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier
         zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
         zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
+        zone == Z.SOUND -> "▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva"
         zone == Z.READER -> "Voltar ou OK fecha"
         zone == Z.CONTENT && sec.kind == "settings" -> if (editing) "◀ ▶ mudam o valor · Voltar salva e sai" else "▲▼ escolhe · OK entra no item · Voltar ao menu"
         zone == Z.CONTENT && kbd -> "setas no teclado · OK digita · Voltar fecha"
@@ -2520,5 +2566,80 @@ private fun Coin(name: String, modifier: Modifier, size: Dp) {
         // brilho de metal
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0x66FFFFFF), Color.Transparent, Color(0x22FFFFFF)))))
         Text(sym, color = Color(0xFF1A1206), fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+class SoundRow(val key: String, val label: String, val group: String)
+
+private val SOUND_ROWS = listOf(
+    SoundRow("music", "Música do app", "Geral"),
+    SoundRow("keys", "Sons das teclas", "Geral"),
+    SoundRow("vt", "Agudo (clareza)", "Voz"),
+    SoundRow("vb", "Grave (corpo)", "Voz"),
+    SoundRow("va", "Acústico (presença)", "Voz"),
+    SoundRow("at", "Agudo (brilho)", "Som de ambiente"),
+    SoundRow("ab", "Grave (impacto)", "Som de ambiente"),
+    SoundRow("aa", "Acústico (sala)", "Som de ambiente"),
+    SoundRow("vv", "Volume da voz", "Volumes"),
+    SoundRow("av", "Volume do ambiente", "Volumes"),
+    SoundRow("reset", "Restaurar padrão", "")
+)
+
+/** Editor de som: voz e ambiente separados, cada um com agudo, grave e acústico, e volumes próprios. */
+@Composable
+private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int) {
+    @Suppress("UNUSED_VARIABLE") val t = tick
+    Box(Modifier.fillMaxSize().background(Color(0xC802030A)), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(u(18))
+        Column(
+            Modifier.width(u(700)).background(CPanel, shape).border(BorderStroke(u(1), Color(0x33FFFFFF)), shape).padding(u(28))
+        ) {
+            Text("Som do aplicativo", color = CInk, fontSize = ts(28), fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(u(10)))
+            var lastGroup = ""
+            SOUND_ROWS.forEachIndexed { i, r ->
+                if (r.group != lastGroup && r.group.isNotEmpty()) {
+                    lastGroup = r.group
+                    Text(r.group.uppercase(), color = CAccent, fontSize = ts(13), fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = u(8), bottom = u(4)))
+                }
+                val on = i == sel
+                val rs = RoundedCornerShape(u(10))
+                Row(
+                    Modifier.fillMaxWidth().height(u(38)).background(if (on) Color.White else Color.Transparent, rs).padding(horizontal = u(14)),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(r.label, color = if (on) Color.Black else CLight, fontSize = ts(17), fontWeight = if (on) FontWeight.ExtraBold else FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    when (r.key) {
+                        "music" -> Text(SOUND_NAMES[music], color = if (on) Color.Black else CInk, fontSize = ts(16))
+                        "keys" -> Text(KEYS_NAMES[keys], color = if (on) Color.Black else CInk, fontSize = ts(16))
+                        "reset" -> Text("OK", color = if (on) Color.Black else CDim, fontSize = ts(16))
+                        else -> {
+                            val v = Store.eqVal(r.key)
+                            // barra de -5 a +5 com o zero no meio
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                for (k in -5..5) {
+                                    val filled = (v > 0 && k in 1..v) || (v < 0 && k in v..-1)
+                                    Box(
+                                        Modifier.padding(horizontal = u(1.5f)).width(u(if (k == 0) 3 else 12)).height(u(if (k == 0) 18 else 12))
+                                            .background(
+                                                if (k == 0) (if (on) Color(0xFF555555) else CDim)
+                                                else if (filled) (if (on) Color(0xFF1E6FD9) else CAccent)
+                                                else if (on) Color(0xFFDDDDDD) else Color(0x33FFFFFF),
+                                                RoundedCornerShape(u(3))
+                                            )
+                                    )
+                                }
+                                Text(
+                                    (if (v > 0) "+$v" else "$v").padStart(3), color = if (on) Color.Black else CInk, fontSize = ts(15),
+                                    fontWeight = FontWeight.Bold, modifier = Modifier.width(u(42)), textAlign = TextAlign.End
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(u(10)))
+            Text("▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva", color = CDim, fontSize = ts(13))
+        }
     }
 }

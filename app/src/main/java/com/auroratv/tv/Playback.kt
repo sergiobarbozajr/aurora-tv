@@ -131,6 +131,7 @@ class Playback(private val context: Context) {
             .setPreferredAudioLanguages("pt-BR", "pt", "por")
             .setPreferredTextLanguages("pt-BR", "pt", "por")
             .build()
+        AudioFx.player = p
         AudioFx.attach(p.audioSessionId)
         p.addListener(listener)
         return p
