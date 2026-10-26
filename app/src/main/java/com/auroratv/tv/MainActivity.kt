@@ -394,6 +394,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var iptvSlot by remember { mutableStateOf(0) }
     var keysLvl by remember { mutableStateOf(Store.keySound) }
     var sndSel by remember { mutableStateOf(0) }
+    var sndFromPlayer by remember { mutableStateOf(false) }
     var eqTick by remember { mutableStateOf(0) }
     var musicFiles by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var iptvRows by remember { mutableStateOf<Map<String, List<RowData>>>(emptyMap()) }
@@ -481,8 +482,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     LaunchedEffect(zone) {
         try { focus.requestFocus() } catch (e: Exception) {}
     }
-    LaunchedEffect(zone, epFromPlayer) {
-        val v = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer)
+    LaunchedEffect(zone, epFromPlayer, sndFromPlayer) {
+        val v = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer) || (zone == Z.SOUND && sndFromPlayer)
         videoPlayingFlag = v
         Sound.setPaused(v)
     }
@@ -1175,6 +1176,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 else when (item.name) {
                     "Som do aplicativo" -> {
                         sndSel = 0
+                        sndFromPlayer = false
                         zone = Z.SOUND
                     }
                     "Rede e internet" -> {
@@ -1285,7 +1287,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun menuItems(): List<String> = when (pmenu) {
-        "main" -> listOfNotNull("Áudio", "Legendas", "Ajuste de tela", if (seriesActive) "Temporadas e episódios" else null, "Informações")
+        "main" -> listOfNotNull("Áudio", "Ajustes de som (voz e ambiente)", "Legendas", "Ajuste de tela", if (seriesActive) "Temporadas e episódios" else null, "Informações")
         "audio" -> {
             val l = ArrayList<String>()
             var n = 1
@@ -1338,6 +1340,13 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "main" -> {
                 pmSel = 0
                 pmenu = when {
+                    sel.startsWith("Ajustes de som") -> {
+                        // editor de som por cima do vídeo: mexe e ouve o resultado na hora
+                        sndSel = 0
+                        sndFromPlayer = true
+                        zone = Z.SOUND
+                        null
+                    }
                     sel.startsWith("Áudio") -> "audio"
                     sel.startsWith("Legendas") -> "subs"
                     sel.startsWith("Ajuste") -> "screen"
@@ -1451,7 +1460,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun act(a: String) {
-        if (zone != Z.PLAYER) Sound.click()
+        if (zone != Z.PLAYER && !(zone == Z.SOUND && sndFromPlayer)) Sound.click()
         when (zone) {
             Z.INTRO -> finishIntro()
             Z.PLAYER -> playerAct(a)
@@ -1509,7 +1518,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         showToast("Som restaurado ao padrão")
                     } else step(1)
                     "back", "home" -> {
-                        zone = Z.CONTENT
+                        zone = if (sndFromPlayer) Z.PLAYER else Z.CONTENT
                         showToast("Ajustes de som salvos")
                     }
                 }
@@ -1594,7 +1603,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     BackHandler(enabled = true) { act("back") }
 
-    val inVideo = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer)
+    val inVideo = zone == Z.PLAYER || (zone == Z.EPISODES && epFromPlayer) || (zone == Z.SOUND && sndFromPlayer)
     val tick = frameClock(!inVideo && zone != Z.TEST)
     val showMain = !inVideo && zone != Z.TEST
 
@@ -1622,6 +1631,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             inVideo -> {
                 PlayerScreen(pb, playCard, epgText, osdTick, screenMode, adj, adjusting, adjPart, pmenu != null || adjusting)
                 if (pmenu != null && zone == Z.PLAYER) PlayerMenu(pmenu ?: "", menuItems(), pmSel, menuTick) { pmenu = null }
+                if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick, true)
             }
             zone == Z.TEST -> {
                 val tc = TEST_COLORS[testIdx]
@@ -1660,7 +1670,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
-                    if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick)
+                    if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick, false)
                     if (zone == Z.READER) ReaderBox(reader)
                     Hint(zone, sec, editing, kbd, Modifier.align(Alignment.BottomStart))
                     Pill(clock, weatherText, Modifier.align(Alignment.BottomEnd))
@@ -2587,14 +2597,19 @@ private val SOUND_ROWS = listOf(
 
 /** Editor de som: voz e ambiente separados, cada um com agudo, grave e acústico, e volumes próprios. */
 @Composable
-private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int) {
+private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int, overVideo: Boolean) {
     @Suppress("UNUSED_VARIABLE") val t = tick
-    Box(Modifier.fillMaxSize().background(Color(0xC802030A)), contentAlignment = Alignment.Center) {
+    // sobre o vídeo o painel fica à direita e o vídeo continua visível e tocando
+    Box(
+        Modifier.fillMaxSize().background(if (overVideo) Color.Transparent else Color(0xC802030A)).padding(end = if (overVideo) u(30) else u(0)),
+        contentAlignment = if (overVideo) Alignment.CenterEnd else Alignment.Center
+    ) {
         val shape = RoundedCornerShape(u(18))
         Column(
-            Modifier.width(u(700)).background(CPanel, shape).border(BorderStroke(u(1), Color(0x33FFFFFF)), shape).padding(u(28))
+            Modifier.width(u(if (overVideo) 560 else 700)).background(if (overVideo) CPanel.copy(alpha = 0.9f) else CPanel, shape).border(BorderStroke(u(1), Color(0x33FFFFFF)), shape).padding(u(28))
         ) {
-            Text("Som do aplicativo", color = CInk, fontSize = ts(28), fontWeight = FontWeight.ExtraBold)
+            Text(if (overVideo) "Ajustes de som" else "Som do aplicativo", color = CInk, fontSize = ts(28), fontWeight = FontWeight.ExtraBold)
+            if (overVideo) Text("Ajuste e ouça o resultado na hora", color = CDim, fontSize = ts(14))
             Spacer(Modifier.height(u(10)))
             var lastGroup = ""
             SOUND_ROWS.forEachIndexed { i, r ->
