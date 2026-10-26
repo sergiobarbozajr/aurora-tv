@@ -182,6 +182,7 @@ class Playback(private val context: Context) {
         old.removeListener(this.listener)
         player = build()
         effectsOn = false
+        aiKey = ""
         try {
             old.release()
         } catch (e: Exception) {
@@ -192,16 +193,62 @@ class Playback(private val context: Context) {
         }
     }
 
-    /** Realce de imagem só em vídeo comum (SDR). Nível 0 ou HDR: sem processamento nenhum no vídeo. */
-    fun setEnhance(level: Int, hdr: Boolean) {
-        if (level == 0 || hdr) {
+    /** O que o Assistente IA está fazendo agora (selo no player). */
+    var aiLabel by mutableStateOf("")
+        private set
+    private var aiKey = ""
+    private var aiMode = 1
+
+    /** A TV perdeu quadros com o reforço neste vídeo: segue sem processamento na GPU. */
+    private var gpuOff = false
+    private val dropHist = LongArray(10)
+    private var dropIdx = 0
+
+    /**
+     * Assistente IA de imagem (modo 0 desligado, 1 automático, 2..4 manual).
+     * Sem efeito nenhum = o vídeo vai direto para o hardware da TV (super-resolução e AI-PQ do chip).
+     */
+    fun setAi(mode: Int) {
+        aiMode = mode
+        val plan = ImageAi.plan(mode, player.videoFormat, isHdrFormat(player), gpuOff)
+        aiLabel = plan.label
+        if (plan.key == aiKey && (plan.effects.isEmpty() == !effectsOn)) return
+        android.util.Log.i("AuroraAI", "plano=${plan.key} rótulo=${plan.label} vídeo=${player.videoFormat?.width}x${player.videoFormat?.height} ${ImageAi.summary()}")
+        aiKey = plan.key
+        if (plan.effects.isEmpty()) {
             if (effectsOn) main.post { rebuild() }
             return
         }
         try {
-            player.setVideoEffects(enhanceEffects(level))
+            player.setVideoEffects(plan.effects)
             effectsOn = true
         } catch (e: Throwable) {
+            effectsOn = false
+        }
+    }
+
+    /** Quadros perdidos pelo decodificador nos últimos 10 s (medido de verdade na TV). */
+    var droppedLast10s = 0L
+        private set
+
+    private fun watchDrops() {
+        val dc = player.videoDecoderCounters ?: return
+        dc.ensureUpdated()
+        val now = dc.droppedBufferCount.toLong() + dc.skippedOutputBufferCount
+        val old = dropHist[dropIdx]
+        dropHist[dropIdx] = now
+        dropIdx = (dropIdx + 1) % dropHist.size
+        droppedLast10s = if (old in 1..now) now - old else 0L
+        // com o reforço ligado, a TV começou a engasgar: desliga só o reforço e segue tocando
+        if (effectsOn && player.isPlaying && droppedLast10s > 24) {
+            android.util.Log.i("AuroraAI", "fluidez: $droppedLast10s quadros perdidos em 10 s, reforço desligado")
+            gpuOff = true
+            aiKey = ""
+            dropHist.fill(0L)
+            main.post {
+                rebuild()
+                setAi(aiMode)
+            }
         }
     }
 
@@ -221,6 +268,7 @@ class Playback(private val context: Context) {
                     retryLater()
                 }
             } else bufferingSec = 0
+            if (c != null && player.isPlaying) watchDrops()
             // a cada 10 s tocando, guarda o ponto (se a TV desligar de repente, não perde)
             if (c != null && player.isPlaying && ++saveSec >= 10) {
                 saveSec = 0
@@ -248,6 +296,20 @@ class Playback(private val context: Context) {
         connecting = true
         bufferingSec = 0
         resumeAt = if (c.kind == "stream") 0L else Store.resumeGet(u)
+        gpuOff = false
+        aiKey = ""
+        dropHist.fill(0L)
+        // o vídeo anterior estava com reforço: começa o novo num player limpo (direto para a IA da TV)
+        if (effectsOn) {
+            val old = player
+            old.removeListener(listener)
+            player = build()
+            effectsOn = false
+            try {
+                old.release()
+            } catch (e: Exception) {
+            }
+        }
         resumedFrom = resumeAt
         main.removeCallbacks(retryRun)
         prepare()
@@ -410,10 +472,14 @@ class Playback(private val context: Context) {
                 }
             }
             code in 7000..7999 -> {
-                // a TV não aguentou o processamento de imagem (realce): desliga o realce e toca sem ele
-                Store.enhance = 0
+                // a TV não aguentou o processamento de imagem: desliga o reforço neste vídeo e toca sem ele
+                gpuOff = true
+                aiKey = ""
                 onEnhanceFailed?.invoke()
-                main.post { rebuild() }
+                main.post {
+                    rebuild()
+                    setAi(aiMode)
+                }
                 return
             }
             code in 4000..4999 -> diag = Diag("Falha ao decodificar", "Decodificador da TV", e.errorCodeName, "reiniciando o vídeo")

@@ -472,7 +472,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     DisposableEffect(player) {
         val l = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                pb.setEnhance(enhance, isHdrFormat(pb.player))
+                pb.setAi(enhance)
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -484,8 +484,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
     DisposableEffect(pb) {
         pb.onEnhanceFailed = {
-            enhance = 0
-            toastMsg = "Esta TV não aguentou o realce de imagem neste vídeo. Desliguei o realce e o vídeo continua."
+            toastMsg = "A TV ficou sem fôlego com o reforço de imagem neste vídeo. Segui só com a IA da própria TV, sem travar."
         }
         pb.onAuthExpired = {
             val now = System.currentTimeMillis()
@@ -1061,7 +1060,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "enh" -> {
                 enhance = (enhance + d + ENHANCE_NAMES.size) % ENHANCE_NAMES.size
                 Store.enhance = enhance
-                pb.setEnhance(enhance, isHdrFormat(pb.player))
+                pb.setAi(enhance)
             }
             "city" -> {
                 cityIdx = (cityIdx + d + catalog.cities.size) % catalog.cities.size
@@ -1521,7 +1520,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             delay(1000)
             val p = pb.player
             val af = p.audioFormat
-            L("t=$i state=${p.playbackState} playing=${p.isPlaying} pos=${p.currentPosition} vol=${p.volume} audio=${af?.sampleMimeType} ch=${af?.channelCount} rate=${af?.sampleRate} session=${p.audioSessionId} video=${p.videoFormat?.width}x${p.videoFormat?.height} diag=${pb.diag?.title}")
+            L("t=$i state=${p.playbackState} playing=${p.isPlaying} pos=${p.currentPosition} vol=${p.volume} audio=${af?.sampleMimeType} ch=${af?.channelCount} rate=${af?.sampleRate} session=${p.audioSessionId} video=${p.videoFormat?.width}x${p.videoFormat?.height} diag=${pb.diag?.title} ia=${pb.aiLabel} perdidos10s=${pb.droppedLast10s}")
         }
         val before = pb.player.currentPosition
         playerAct("right")
@@ -2163,7 +2162,7 @@ private fun settingBody(
                 "Saída atual da tela: ${dm.widthPixels} x ${dm.heightPixels}" + nl + nl +
                 "Fora do AuroraTV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado."
         }
-        "Realce de imagem" -> tip + nl + nl + "Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). Em vídeo HDR10 o realce fica desligado sozinho, assim o HDR10 passa intacto para a TV." + nl + nl + "Nitidez: o app não consegue mexer na nitidez da TV. Ajuste “Nitidez” no menu de imagem da TCL (veja o Guia de imagem)."
+        "Assistente IA de imagem" -> tip + nl + nl + "Automático (recomendado): o vídeo bom (1080p, 4K, HDR) vai direto para a super-resolução por IA do próprio chip da TV, que leva a imagem a 4K. Vídeo fraco (até 720p) recebe antes um reforço na GPU: reconstrução para 1080p, nitidez adaptativa e tom suave. Se a TV começar a perder quadros, o reforço desliga sozinho e o vídeo segue fluido." + nl + nl + ImageAi.summary() + nl + nl + "Manual: Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). HDR passa sempre intacto." + nl + nl + "Durante o filme, o selo IA no painel mostra o que está atuando."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
         "Som do aplicativo" -> "OK abre o editor de som:" + nl + "• Som das teclas: 6 estilos ou desligado" + nl + "• Voz: agudo, grave e acústico" + nl + "• Som de ambiente: agudo, grave e acústico" + nl + "• Volume da voz separado do volume do ambiente" + nl + nl + "Vale para canais, filmes e séries. A voz é separada pela faixa de frequência dos diálogos." + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
         "Sons das teclas" -> tip + nl + nl + "Um toque curto e baixo a cada botão do controle, como o teclado de um celular. Não toca durante os vídeos."
@@ -2476,6 +2475,13 @@ private fun PlayerScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text((if (cc.kind == "stream") "● AO VIVO · " else "") + cc.label.uppercase(), color = CLive, fontSize = ts(15), fontWeight = FontWeight.Bold)
+                        if (pb.aiLabel.isNotEmpty()) {
+                            Spacer(Modifier.width(u(12)))
+                            Box(
+                                Modifier.clip(RoundedCornerShape(u(6))).background(Brush.horizontalGradient(listOf(Color(0xFF7B5CFF), Color(0xFF3FA9FF))))
+                                    .padding(horizontal = u(9), vertical = u(1))
+                            ) { Text("IA · " + pb.aiLabel, color = Color.White, fontSize = ts(13), fontWeight = FontWeight.Bold) }
+                        }
                         if (dyn.isNotEmpty()) {
                             Spacer(Modifier.width(u(12)))
                             Box(

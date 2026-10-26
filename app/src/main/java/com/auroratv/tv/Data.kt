@@ -90,7 +90,7 @@ fun streamRows(): List<RowData> {
 // ---------- Opções de configuração ----------
 
 val QUALITY_NAMES = listOf("Máxima (recomendado)", "4K (2160p)", "Full HD (1080p)", "HD (720p)", "Economia (480p)")
-val ENHANCE_NAMES = listOf("Desligado", "Médio", "Alto", "Ultra")
+val ENHANCE_NAMES = listOf("Desligado", "Automático", "Manual · Médio", "Manual · Alto", "Manual · Ultra")
 val SOUND_NAMES = listOf("Desligado", "Tema espacial · baixo", "Tema espacial · médio", "Tema espacial · alto")
 val METEOR_NAMES = listOf("Ligado", "Desligado")
 val THEME_NAMES = listOf("Galáxia", "Planetas", "Órbitas", "Mar alienígena", "Deserto", "Plutão gelado", "Cratera ao sol", "Marte", "Tempestade em Júpiter", "Vênus vulcânico", "Terra vista da Lua")
@@ -103,7 +103,7 @@ class SettingItem(val name: String, val edit: String?)
 
 val SETTING_ITEMS = listOf(
     SettingItem("Qualidade de vídeo", "quality"),
-    SettingItem("Realce de imagem", "enh"),
+    SettingItem("Assistente IA de imagem", "enh"),
     SettingItem("Tema do app", "theme"),
     SettingItem("Clima e cidade", "city"),
     SettingItem("Som do aplicativo", null),
@@ -138,9 +138,10 @@ object Store {
     var quality: Int
         get() = int("quality")
         set(v) = putInt("quality", v)
+    /** Assistente IA de imagem: 0 desligado, 1 automático (padrão), 2..4 manual. */
     var enhance: Int
-        get() = int("enh")
-        set(v) = putInt("enh", v)
+        get() = int("ai_mode", 1)
+        set(v) = putInt("ai_mode", v)
     var city: Int
         get() = int("city")
         set(v) = putInt("city", v)
