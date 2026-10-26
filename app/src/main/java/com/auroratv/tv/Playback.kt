@@ -19,7 +19,14 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -36,8 +43,6 @@ class Diag(val title: String, val layer: String, val detail: String, val fix: St
 @androidx.annotation.OptIn(UnstableApi::class)
 class Playback(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
-
-    val player: ExoPlayer
 
     /** Não nulo = tela SEM SINAL com o diagnóstico. */
     var diag by mutableStateOf<Diag?>(null)
@@ -67,54 +72,107 @@ class Playback(private val context: Context) {
     /** Tempo máximo esperando o vídeo começar antes de chamar de "sem sinal". */
     val patienceSec = 25
 
-    init {
-        // conexão reforçada: OkHttp com pool de conexões, HTTP/2, nova tentativa automática de conexão
-        // e redirecionamentos entre http e https
-        val ok = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
-            .build()
-        val http = OkHttpDataSource.Factory(ok as okhttp3.Call.Factory).setUserAgent("okhttp/4.12.0")
+    /** Chamado quando a TV não aguenta o realce de imagem: o app desliga o realce e segue tocando. */
+    var onEnhanceFailed: (() -> Unit)? = null
+    private var effectsOn = false
+
+    // conexão reforçada: OkHttp com pool de conexões, nova tentativa automática de conexão
+    // e redirecionamentos entre http e https
+    private val ok = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
+        .build()
+    private val ds = DefaultDataSource.Factory(context, OkHttpDataSource.Factory(ok as okhttp3.Call.Factory).setUserAgent("okhttp/4.12.0"))
+
+    // como os players de IPTV: o MPEG-TS de canal ao vivo nem sempre começa num quadro-chave,
+    // então o leitor aceita quadros não-chave e detecta as unidades de acesso por conta própria
+    private val tsFlags = DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+    private val extractors = DefaultExtractorsFactory().setTsExtractorFlags(tsFlags).setConstantBitrateSeekingEnabled(true)
+
+    private val listener = object : Player.Listener {
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            AudioFx.attach(audioSessionId)
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            handleError(error)
+        }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_READY) {
+                everReady = true
+                connecting = false
+                diag = null
+                attempt = 0
+                bufferingSec = 0
+                card?.let { if (it.kind == "stream") mark(it.name, 1) }
+            }
+        }
+    }
+
+    private fun build(): ExoPlayer {
         val load = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30000, 120000, 2000, 5000)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
-        player = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
+        // se o decodificador principal da TV falhar, tenta o próximo disponível
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        val p = ExoPlayer.Builder(context, renderers)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(ds, extractors))
             .setLoadControl(load)
             .build()
-        player.playWhenReady = true
+        p.playWhenReady = true
         // áudio e legenda em português do Brasil quando o conteúdo tiver essa faixa
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .setPreferredAudioLanguages("pt-BR", "pt", "por")
             .setPreferredTextLanguages("pt-BR", "pt", "por")
             .build()
-        AudioFx.attach(player.audioSessionId)
-        player.addListener(object : Player.Listener {
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                AudioFx.attach(audioSessionId)
-            }
+        AudioFx.attach(p.audioSessionId)
+        p.addListener(listener)
+        return p
+    }
 
-            override fun onPlayerError(error: PlaybackException) {
-                handleError(error)
-            }
+    /** O player atual. Muda quando é preciso recriar (por exemplo, para tirar o realce de imagem). */
+    var player: ExoPlayer by mutableStateOf(build())
+        private set
 
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    everReady = true
-                    connecting = false
-                    diag = null
-                    attempt = 0
-                    bufferingSec = 0
-                    card?.let { if (it.kind == "stream") mark(it.name, 1) }
-                }
-            }
-        })
+    init {
         loadHealth()
+    }
+
+    /** Troca o player por um novo, sem efeitos de vídeo, e retoma o que estava tocando. */
+    private fun rebuild() {
+        val old = player
+        val pos = old.currentPosition
+        val vod = card?.kind != "stream"
+        old.removeListener(this.listener)
+        player = build()
+        effectsOn = false
+        try {
+            old.release()
+        } catch (e: Exception) {
+        }
+        if (card != null) {
+            prepare()
+            if (vod && pos > 0) player.seekTo(pos)
+        }
+    }
+
+    /** Realce de imagem só em vídeo comum (SDR). Nível 0 ou HDR: sem processamento nenhum no vídeo. */
+    fun setEnhance(level: Int, hdr: Boolean) {
+        if (level == 0 || hdr) {
+            if (effectsOn) main.post { rebuild() }
+            return
+        }
+        try {
+            player.setVideoEffects(enhanceEffects(level))
+            effectsOn = true
+        } catch (e: Throwable) {
+        }
     }
 
     // vigia o buffer: carregando por tempo demais = conexão lenta
@@ -184,7 +242,16 @@ class Playback(private val context: Context) {
             val low = url.lowercase()
             if (low.contains(".m3u8")) b.setMimeType(MimeTypes.APPLICATION_M3U8)
             else if (low.contains(".mpd")) b.setMimeType(MimeTypes.APPLICATION_MPD)
-            player.setMediaItem(b.build())
+            val item = b.build()
+            val src = when {
+                low.contains(".m3u8") -> HlsMediaSource.Factory(ds)
+                    .setExtractorFactory(DefaultHlsExtractorFactory(tsFlags, true))
+                    .setAllowChunklessPreparation(true)
+                    .createMediaSource(item)
+                low.contains(".mpd") -> DashMediaSource.Factory(ds).createMediaSource(item)
+                else -> ProgressiveMediaSource.Factory(ds, extractors).createMediaSource(item)
+            }
+            player.setMediaSource(src)
             player.prepare()
             player.play()
         } catch (e: Exception) {
@@ -301,6 +368,13 @@ class Playback(private val context: Context) {
                     return
                 }
             }
+            code in 7000..7999 -> {
+                // a TV não aguentou o processamento de imagem (realce): desliga o realce e toca sem ele
+                Store.enhance = 0
+                onEnhanceFailed?.invoke()
+                main.post { rebuild() }
+                return
+            }
             code in 4000..4999 -> diag = Diag("Falha ao decodificar", "Decodificador da TV", e.errorCodeName, "reiniciando o vídeo")
             else -> diag = Diag("Falha na reprodução", "Player", e.errorCodeName, "nova tentativa")
         }
@@ -377,6 +451,7 @@ class Playback(private val context: Context) {
 
     fun release() {
         main.removeCallbacksAndMessages(null)
+        player.removeListener(listener)
         player.release()
     }
 

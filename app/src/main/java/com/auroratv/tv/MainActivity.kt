@@ -336,6 +336,12 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     var quality by remember { mutableStateOf(Store.quality) }
     var enhance by remember { mutableStateOf(Store.enhance) }
+    LaunchedEffect(toastMsg) {
+        if (toastMsg != null) {
+            delay(6000)
+            toastMsg = null
+        }
+    }
     var cityIdx by remember { mutableStateOf(Store.city.coerceIn(0, catalog.cities.size - 1)) }
     var soundLvl by remember { mutableStateOf(Store.sound) }
     var meteorOpt by remember { mutableStateOf(Store.meteor) }
@@ -394,10 +400,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
     var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    DisposableEffect(pb) {
+    DisposableEffect(player) {
         val l = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                applyEnhance(player, enhance, isHdrFormat(player))
+                pb.setEnhance(enhance, isHdrFormat(pb.player))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -405,6 +411,13 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
         }
         player.addListener(l)
+        onDispose { player.removeListener(l) }
+    }
+    DisposableEffect(pb) {
+        pb.onEnhanceFailed = {
+            enhance = 0
+            toastMsg = "Esta TV não aguentou o realce de imagem neste vídeo. Desliguei o realce e o vídeo continua."
+        }
         pb.onAuthExpired = {
             val now = System.currentTimeMillis()
             if (Store.iptvUrl.isNotBlank() && now - lastRelogin > 60000) {
@@ -420,7 +433,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
         }
         onDispose {
-            player.removeListener(l)
             pb.release()
         }
     }
@@ -656,7 +668,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     fun play(c: Card, list: List<Card>) {
         if (c.url == null) return
         applyQuality(player, quality)
-        applyEnhance(player, enhance, true)
         pb.start(c)
         playCard = c
         playList = list.filter { it.kind == "stream" && it.url != null }
@@ -928,7 +939,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "enh" -> {
                 enhance = (enhance + d + ENHANCE_NAMES.size) % ENHANCE_NAMES.size
                 Store.enhance = enhance
-                applyEnhance(player, enhance, isHdrFormat(player))
+                pb.setEnhance(enhance, isHdrFormat(pb.player))
             }
             "city" -> {
                 cityIdx = (cityIdx + d + catalog.cities.size) % catalog.cities.size
@@ -2101,7 +2112,10 @@ private fun PlayerScreen(
                     descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 }
             },
-            update = { it.resizeMode = rm },
+            update = {
+                it.resizeMode = rm
+                if (it.player !== player) it.player = player
+            },
             modifier = vm
         )
         if (adjusting) {

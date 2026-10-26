@@ -77,30 +77,24 @@ fun isHdrFormat(player: ExoPlayer): Boolean {
     return t == androidx.media3.common.C.COLOR_TRANSFER_ST2084 || t == androidx.media3.common.C.COLOR_TRANSFER_HLG
 }
 
-/** Realce só em vídeo SDR. Em vídeo HDR10/HLG o realce fica desligado para o HDR passar intacto até a TV. */
+/** Efeitos do realce de imagem (só usados em vídeo SDR e com nível maior que zero). */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-fun applyEnhance(player: ExoPlayer, level: Int, hdr: Boolean) {
-    try {
-        val fx: List<androidx.media3.common.Effect> = if (hdr) emptyList() else when (level) {
-            1 -> listOf(
-                androidx.media3.effect.Brightness(0.03f),
-                androidx.media3.effect.Contrast(0.08f),
-                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(6f).build()
-            )
-            2 -> listOf(
-                androidx.media3.effect.Brightness(0.06f),
-                androidx.media3.effect.Contrast(0.16f),
-                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(14f).build()
-            )
-            3 -> listOf(
-                androidx.media3.effect.Brightness(0.10f),
-                androidx.media3.effect.Contrast(0.26f),
-                androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(24f).build()
-            )
-            else -> emptyList()
-        }
-        player.setVideoEffects(fx)
-    } catch (e: Throwable) {}
+fun enhanceEffects(level: Int): List<androidx.media3.common.Effect> = when (level) {
+    1 -> listOf(
+        androidx.media3.effect.Brightness(0.03f),
+        androidx.media3.effect.Contrast(0.08f),
+        androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(6f).build()
+    )
+    2 -> listOf(
+        androidx.media3.effect.Brightness(0.06f),
+        androidx.media3.effect.Contrast(0.16f),
+        androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(14f).build()
+    )
+    else -> listOf(
+        androidx.media3.effect.Brightness(0.10f),
+        androidx.media3.effect.Contrast(0.26f),
+        androidx.media3.effect.HslAdjustment.Builder().adjustSaturation(24f).build()
+    )
 }
 
 @Suppress("DEPRECATION")
