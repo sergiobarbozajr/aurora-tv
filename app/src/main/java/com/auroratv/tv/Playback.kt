@@ -44,11 +44,6 @@ class Diag(val title: String, val layer: String, val detail: String, val fix: St
 class Playback(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
 
-    companion object Cur {
-        /** O player em uso, para o app pausar e guardar o ponto quando a TV dorme ou sai do app. */
-        var current: Playback? = null
-    }
-
     /** Onde o filme/episódio vai continuar (ms) e de onde continuou, para o aviso na tela. */
     private var resumeAt = 0L
     var resumedFrom by mutableStateOf(0L)
@@ -502,6 +497,8 @@ class Playback(private val context: Context) {
     }
 
     companion object {
+        /** O player em uso, para o app pausar e guardar o ponto quando a TV dorme ou sai do app. */
+        var current: Playback? = null
         fun trackLabel(f: androidx.media3.common.Format, n: Int): String {
             val lang = f.language
             val name = when {
