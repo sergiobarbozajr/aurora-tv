@@ -46,8 +46,19 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell wm size 1920x1080 || true
             adb shell wm density 240 || true
-            for th in 0 1 2 3 4 5 6 7 8 9 10; do adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme $th; sleep 16; adb exec-out screencap -p > cap/tema$th.png; done
-            for th in 3 8 9 7; do adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme $th; sleep 14; adb shell screenrecord --time-limit 5 --size 960x540 /sdcard/v$th.mp4 || true; adb pull /sdcard/v$th.mp4 cap/ || true; done
+            adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0; sleep 14; adb exec-out screencap -p > cap/inicio.png
+            adb logcat -c
+            i=0
+            for u in https://q1.pieter.com/ https://q2.pieter.com/ https://q3.pieter.com/ https://ut.pieter.com/ https://rtcw.pieter.com/ https://surfd.net/ https://mitchellhynes.com/halo/ https://skate.aaddpp.lol/; do
+              i=$((i+1)); adb shell am force-stop com.auroratv.tv
+              adb shell am start -n com.auroratv.tv/.GameActivity --es url "$u"; sleep 35
+              adb exec-out screencap -p > cap/jogo$i.png
+              adb shell input keyevent KEYCODE_BUTTON_A; sleep 4; adb exec-out screencap -p > cap/jogo${i}b.png
+            done
+            adb shell am force-stop com.auroratv.tv
+            adb shell am start -n com.auroratv.tv/.GameActivity --es url "file:///android_asset/controle.html"; sleep 8
+            adb shell input keyevent KEYCODE_BUTTON_A; sleep 1; adb exec-out screencap -p > cap/controle.png
+            adb logcat -d -s AuroraGame:I > cap/jogos-log.txt || true
             adb shell am force-stop com.auroratv.tv
             adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0 --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
             sleep 22

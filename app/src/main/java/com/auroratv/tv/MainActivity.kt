@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
         Sound.init(this)
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Sound.keyVol = Store.keyVol
+        SomIa.enabled = Store.somIa == 1
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testUrl = intent?.getStringExtra("aurora_test")
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testTheme = intent?.getIntExtra("aurora_theme", -1) ?: -1
         Store.musicUri = ""
@@ -696,6 +697,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Novelas" -> withLogin(iptv("Novelas"))
             "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs))
             "Esporte" -> withLogin(iptv("Esporte"))
+            "Jogos" -> Games.cards()
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
                 RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") +
@@ -923,6 +925,14 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
+            "game" -> {
+                if (c.extra == "heavy") showToast("Jogo pesado: o primeiro carregamento pode demorar. Voltar 2x sai.")
+                try {
+                    context.startActivity(Intent(context, GameActivity::class.java).putExtra("url", c.url))
+                } catch (e: Exception) {
+                    showToast("Não consegui abrir o jogo.")
+                }
+            }
             "antenna" -> openAntenna(c)
             "stream", "vod" -> play(c, list)
             "series" -> {
@@ -1520,7 +1530,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             delay(1000)
             val p = pb.player
             val af = p.audioFormat
-            L("t=$i state=${p.playbackState} playing=${p.isPlaying} pos=${p.currentPosition} vol=${p.volume} audio=${af?.sampleMimeType} ch=${af?.channelCount} rate=${af?.sampleRate} session=${p.audioSessionId} video=${p.videoFormat?.width}x${p.videoFormat?.height} diag=${pb.diag?.title} ia=${pb.aiLabel} perdidos10s=${pb.droppedLast10s}")
+            L("t=$i state=${p.playbackState} playing=${p.isPlaying} pos=${p.currentPosition} vol=${p.volume} audio=${af?.sampleMimeType} ch=${af?.channelCount} rate=${af?.sampleRate} session=${p.audioSessionId} video=${p.videoFormat?.width}x${p.videoFormat?.height} diag=${pb.diag?.title} ia=${pb.aiLabel} perdidos10s=${pb.droppedLast10s} somIA=${SomIa.scene}")
         }
         val before = pb.player.currentPosition
         playerAct("right")
@@ -1575,6 +1585,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             Sound.keyType = keysLvl
                             Sound.click()
                         }
+                        "sia" -> {
+                            Store.somIa = 1 - Store.somIa
+                            SomIa.enabled = Store.somIa == 1
+                            eqTick++
+                        }
                         "kv" -> {
                             Store.keyVol = (Store.keyVol + d).coerceIn(0, 10)
                             Sound.keyVol = Store.keyVol
@@ -1595,7 +1610,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     "left" -> step(-1)
                     "right" -> step(1)
                     "ok" -> if (row.key == "reset") {
-                        for (r in SOUND_ROWS) if (r.group != "Teclas" && r.key != "reset") Store.setEqVal(r.key, 0)
+                        for (r in SOUND_ROWS) if (r.group != "Teclas" && r.group != "Inteligência" && r.key != "reset") Store.setEqVal(r.key, 0)
                         AudioFx.apply(Store.eq())
                         eqTick++
                         showToast("Som restaurado ao padrão")
@@ -1831,7 +1846,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
-    val art = if (c.kind == "app" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
+    val art = if (c.kind == "app" || c.kind == "game" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
     val glossy = c.kind == "app"
     // cartões de stream: efeito 3D (sombra, relevo e brilho); com foco crescem um pouco
     var m = Modifier.width(w).height(u(122))
@@ -1937,7 +1952,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
 private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
     val shape = RoundedCornerShape(u(18))
     Box(Modifier.fillMaxWidth().height(u(254)).clip(shape)) {
-        val art = if (c != null && (c.img.isNotEmpty() || c.kind == "app")) rememberCardImage(c) else null
+        val art = if (c != null && (c.img.isNotEmpty() || c.kind == "app" || c.kind == "game")) rememberCardImage(c) else null
         if (c != null && c.kind == "app") {
             StreamHero(c, art)
         } else if (scene) {
@@ -1999,7 +2014,8 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "login" -> "Conecte a sua conta licenciada e os canais entram aqui."
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
-                    c.kind == "antenna" -> "OK abre a TV da TCL na entrada de antena"
+                    c.kind == "antenna" -> "OK abre a TV na entrada de antena"
+                    c.kind == "game" -> c.desc.take(150)
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
@@ -2189,14 +2205,7 @@ private fun settingBody(
             val unused = netTick + 0
             networkInfo(context) + nl + nl + "Internet: $speed" + nl + "OK mede agora a velocidade e o tempo de resposta (baixa cerca de 10 MB)."
         }
-        "Guia de imagem (TCL A400M)" ->
-            "Ajustes recomendados no menu da própria TCL:" + nl +
-                "• Modo de imagem: Cinema ou Filme (mais fiel)" + nl +
-                "• Local dimming / Mini-LED: Alto" + nl +
-                "• Nitidez: baixa (0 a 15)" + nl +
-                "• Contraste dinâmico: Médio" + nl +
-                "• Movimento (DNR/MEMC): Baixo para filmes, Médio para esporte" + nl + nl +
-                hdrLine(context) + nl + "O teto é 4K. O HDR só aparece em conteúdo que já é HDR."
+        "Guia de imagem" -> imageGuide() + nl + nl + hdrLine(context) + nl + "O HDR só aparece em conteúdo que já é HDR."
         "Teste de tela" -> "Cores puras em tela cheia para achar linhas, manchas e LEDs com defeito." + nl + nl + "OK para começar."
                     "Mapear controle remoto" ->
             "Ensina ao app qual botão do seu controle é o VOLTAR e qual é o INÍCIO." + nl + nl +
@@ -2351,16 +2360,18 @@ private fun PlayerScreen(
 ) {
     val player = pb.player
     var dyn by remember { mutableStateOf("") }
+    var sia by remember { mutableStateOf("") }
     LaunchedEffect(card?.url) {
         dyn = ""
         while (true) {
+            sia = if (SomIa.enabled) SomIa.scene else ""
             dyn = when (player.videoFormat?.colorInfo?.colorTransfer) {
                 androidx.media3.common.C.COLOR_TRANSFER_ST2084 -> "HDR10"
                 androidx.media3.common.C.COLOR_TRANSFER_HLG -> "HLG"
                 null -> ""
                 else -> "SDR"
             }
-            delay(1500)
+            delay(700)
         }
     }
     // painel de informações: aparece por 12 s e some; volta a cada tecla
@@ -2481,6 +2492,13 @@ private fun PlayerScreen(
                                 Modifier.clip(RoundedCornerShape(u(6))).background(Brush.horizontalGradient(listOf(Color(0xFF7B5CFF), Color(0xFF3FA9FF))))
                                     .padding(horizontal = u(9), vertical = u(1))
                             ) { Text(if (pb.aiLabel.startsWith("IA")) pb.aiLabel else "IA · " + pb.aiLabel, color = Color.White, fontSize = ts(13), fontWeight = FontWeight.Bold) }
+                        }
+                        if (sia.isNotEmpty()) {
+                            Spacer(Modifier.width(u(12)))
+                            Box(
+                                Modifier.clip(RoundedCornerShape(u(6))).background(Brush.horizontalGradient(listOf(Color(0xFFFF6A3D), Color(0xFFFFB13D))))
+                                    .padding(horizontal = u(9), vertical = u(1))
+                            ) { Text("Som IA · $sia", color = Color(0xFF1A0B02), fontSize = ts(13), fontWeight = FontWeight.Bold) }
                         }
                         if (dyn.isNotEmpty()) {
                             Spacer(Modifier.width(u(12)))
@@ -2730,6 +2748,7 @@ private fun Coin(name: String, modifier: Modifier, size: Dp) {
 class SoundRow(val key: String, val label: String, val group: String)
 
 private val SOUND_ROWS = listOf(
+    SoundRow("sia", "Som IA (explosão, diálogo, ambiente)", "Inteligência"),
     SoundRow("keys", "Som das teclas", "Teclas"),
     SoundRow("kv", "Volume das teclas", "Teclas"),
     SoundRow("vt", "Agudo (clareza)", "Voz"),
@@ -2776,6 +2795,7 @@ private fun SoundBox(sel: Int, music: Int, keys: Int, tick: Int, overVideo: Bool
                         "music" -> Text(SOUND_NAMES[music], color = if (on) Color.Black else CInk, fontSize = ts(16))
                         "keys" -> Text(KEYS_NAMES[keys], color = if (on) Color.Black else CInk, fontSize = ts(16))
                         "reset" -> Text("OK", color = if (on) Color.Black else CDim, fontSize = ts(16))
+                        "sia" -> Text(if (Store.somIa == 1) "Automático" else "Desligado", color = if (on) Color.Black else CInk, fontSize = ts(16))
                         "kv" -> Row(verticalAlignment = Alignment.CenterVertically) {
                             val v = Store.keyVol
                             for (k in 1..10) {

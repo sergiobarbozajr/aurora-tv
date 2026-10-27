@@ -192,3 +192,63 @@ fun openNetworkSettings(context: android.content.Context) {
         }
     }
 }
+
+
+/** Guia de imagem para a TV em que o app está instalado (marca e modelo detectados), não fixo num modelo. */
+fun imageGuide(): String {
+    val man = android.os.Build.MANUFACTURER.trim()
+    val model = android.os.Build.MODEL.trim()
+    val n = man.lowercase()
+    val nl = "\n"
+    val head = "Sua TV: " + man.replaceFirstChar { it.uppercase() } + " " + model + nl + nl
+    val tips = when {
+        n.contains("tcl") || n.contains("semp") -> listOf(
+            "Modo de imagem: Cinema ou Filme (mais fiel)",
+            "Local dimming / Mini-LED (se tiver): Alto",
+            "Nitidez: baixa (0 a 15); a IA de imagem já cuida dos detalhes",
+            "Contraste dinâmico: Médio",
+            "Movimento (MEMC): Baixo para filmes, Médio para esporte"
+        )
+        n.contains("sony") -> listOf(
+            "Modo de imagem: Personalizado ou Cinema",
+            "Realidade criada / Reality Creation: Automático",
+            "Nitidez: 50 (neutro)",
+            "Motionflow: Desligado para filmes, Suave para esporte",
+            "Modo HDR: Automático"
+        )
+        n.contains("philips") || n.contains("tpv") -> listOf(
+            "Estilo de imagem: Filme ou ISF Dia",
+            "Nitidez: baixa a média",
+            "Perfect Natural Motion: Mínimo para filmes",
+            "Contraste dinâmico: Médio"
+        )
+        n.contains("xiaomi") -> listOf(
+            "Modo de imagem: Filme",
+            "Nitidez: baixa",
+            "MEMC: Desligado para filmes, Baixo para esporte",
+            "Contraste dinâmico: Médio"
+        )
+        n.contains("hisense") || n.contains("toshiba") -> listOf(
+            "Modo de imagem: Filme / Cinema",
+            "Nitidez: baixa",
+            "Motion Clearance (MEMC): Desligado para filmes",
+            "Contraste dinâmico: Baixo ou Médio"
+        )
+        n.contains("google") || n.contains("amazon") || n.contains("nvidia") || n.contains("amlogic") || n.contains("rockchip") ->
+            listOf(
+                "Este é um aparelho ligado na TV (box). Ajuste a imagem no menu da própria TV:",
+                "Modo de imagem: Filme ou Cinema",
+                "Nitidez: baixa",
+                "Suavização de movimento: Desligada para filmes",
+                "No box: Configurações > Tela > resolução no máximo e HDR automático"
+            )
+        else -> listOf(
+            "Modo de imagem: Filme, Cinema ou Padrão",
+            "Nitidez: baixa (o excesso cria contornos brancos)",
+            "Suavização de movimento: Desligada para filmes, baixa para esporte",
+            "Contraste dinâmico: Médio",
+            "Temperatura de cor: Quente ou Normal"
+        )
+    }
+    return head + "Ajustes recomendados no menu da própria TV:" + nl + tips.joinToString(nl) { "• $it" } + nl + nl + ImageAi.summary()
+}

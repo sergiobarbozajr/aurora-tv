@@ -124,12 +124,16 @@ object Img {
 fun rememberCardImage(c: Card): ImageBitmap? {
     val context = LocalContext.current
     val wiki = c.img.isEmpty() && (c.kind == "vod" || c.kind == "series")
-    val key = if (c.kind == "app") "app:" + c.name else if (wiki) "wiki:" + c.name else c.img
+    val key = if (c.kind == "app") "app:" + c.name else if (c.kind == "game") "game:" + c.name else if (wiki) "wiki:" + c.name else c.img
     var b by remember(key) { mutableStateOf(if (key.isEmpty()) null else Img.peek(key)) }
     LaunchedEffect(key) {
         if (b == null && key.isNotEmpty()) {
             b = when {
                 c.kind == "app" -> Img.app(context, c).first
+                c.kind == "game" -> {
+                    val u = withContext(Dispatchers.IO) { Games.cover(c.url ?: "") }
+                    if (u.isNotEmpty()) Img.web(u) else null
+                }
                 wiki -> {
                     // sem capa na lista: procura pelo nome na Wikipédia
                     val u = withContext(Dispatchers.IO) { Wiki.cover(c.name, c.kind == "series") }

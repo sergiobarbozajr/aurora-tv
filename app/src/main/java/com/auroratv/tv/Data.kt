@@ -35,6 +35,7 @@ val SECTIONS = listOf(
     Section("Esporte", "ball", "rows"),
     Section("Notícias", "news", "rows"),
     Section("TV ao vivo", "tv", "live"),
+    Section("Jogos", "game", "rows"),
     Section("Configurações", "gear", "settings"),
     Section("Sair do app", "power", "exit")
 )
@@ -109,7 +110,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Som do aplicativo", null),
     SettingItem("Canais fora do ar", "hideoff"),
     SettingItem("Rede e internet", null),
-    SettingItem("Guia de imagem (TCL A400M)", null),
+    SettingItem("Guia de imagem", null),
     SettingItem("Teste de tela", null),
     SettingItem("Mapear controle remoto", null),
     SettingItem("Conta IPTV", null),
@@ -151,6 +152,11 @@ object Store {
     var meteor: Int
         get() = int("meteor")
         set(v) = putInt("meteor", v)
+
+    /** Som IA: 1 automático (padrão), 0 desligado. */
+    var somIa: Int
+        get() = int("som_ia", 1)
+        set(v) = putInt("som_ia", v)
 
     /** Volume do som das teclas, 0 a 10. */
     var keyVol: Int

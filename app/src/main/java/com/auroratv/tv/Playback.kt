@@ -146,7 +146,15 @@ class Playback(private val context: Context) {
             .setBufferDurationsMs(15000, 50000, 1500, 3000)
             .build()
         // se o decodificador principal da TV falhar, tenta o próximo disponível
-        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        // Som IA entra na cadeia de áudio do player (PCM estéreo e 5.1)
+        val renderers = object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf<androidx.media3.common.audio.AudioProcessor>(SomIaProcessor()))
+                    .build()
+        }.setEnableDecoderFallback(true)
         val p = ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(ds, extractors))
             .setLoadControl(load)
