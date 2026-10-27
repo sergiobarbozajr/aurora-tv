@@ -222,6 +222,16 @@ object Store {
         else sp.edit().putString("adj_" + key, v.joinToString(",")).apply()
     }
 
+    /** Mapeamento dos jogos: "botão:tecla;botão:tecla". */
+    var gameMap: String
+        get() = sp.getString("game_map", "") ?: ""
+        set(v) = sp.edit().putString("game_map", v).apply()
+
+    /** Jogos: o controle remoto começa mandando teclas (perfil "Controle da TV"), não o cursor. */
+    var gameRemoteKeys: Boolean
+        get() = sp.getBoolean("game_remote_keys", false)
+        set(v) = sp.edit().putBoolean("game_remote_keys", v).apply()
+
     var keymap: String
         get() = sp.getString("keymap", "") ?: ""
         set(v) = sp.edit().putString("keymap", v).apply()

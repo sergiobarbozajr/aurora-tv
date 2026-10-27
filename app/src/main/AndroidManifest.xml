@@ -75,5 +75,10 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:hardwareAccelerated="true"
             android:screenOrientation="landscape" />
+        <activity
+            android:name=".GameMapActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:screenOrientation="landscape" />
     </application>
 </manifest>

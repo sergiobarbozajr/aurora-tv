@@ -50,7 +50,12 @@ object Games {
         return listOf(
             RowData("Jogos gratuitos no navegador", mk(FREE, 0)),
             RowData("Use a sua própria cópia do jogo", mk(OWN_COPY, 20)),
-            RowData("Controle", listOf(mkCard("Testar controle", "Veja cada botão funcionando", "game", 40, TEST_URL, "", emptyList(), "Aperte os botões do controle Bluetooth e veja qual tecla o jogo recebe.")))
+            RowData(
+                "Controles", listOf(
+                    mkCard("Mapear controles", "Controle da TV ou Bluetooth", "gamemap", 41, null, "", emptyList(), "Escolha qual botão faz cada ação: pular, atirar, andar… Tem perfil pronto para jogar só com o controle remoto da TV."),
+                    mkCard("Testar controle", "Veja cada botão funcionando", "game", 40, TEST_URL, "", emptyList(), "Aperte os botões e veja qual tecla o jogo recebe.")
+                )
+            )
         )
     }
 
@@ -79,6 +84,79 @@ object Games {
         return r
     }
 
+    /** Ações do jogo e a tecla que cada uma envia. */
+    val ACTIONS = listOf(
+        "Andar para frente" to KeyEvent.KEYCODE_W,
+        "Andar para trás" to KeyEvent.KEYCODE_S,
+        "Andar para a esquerda" to KeyEvent.KEYCODE_A,
+        "Andar para a direita" to KeyEvent.KEYCODE_D,
+        "Virar à esquerda" to KeyEvent.KEYCODE_DPAD_LEFT,
+        "Virar à direita" to KeyEvent.KEYCODE_DPAD_RIGHT,
+        "Olhar para cima" to KeyEvent.KEYCODE_PAGE_UP,
+        "Olhar para baixo" to KeyEvent.KEYCODE_PAGE_DOWN,
+        "Pular" to KeyEvent.KEYCODE_SPACE,
+        "Atirar" to KeyEvent.KEYCODE_CTRL_LEFT,
+        "Usar / abrir" to KeyEvent.KEYCODE_E,
+        "Recarregar" to KeyEvent.KEYCODE_R,
+        "Correr" to KeyEvent.KEYCODE_SHIFT_LEFT,
+        "Agachar" to KeyEvent.KEYCODE_C,
+        "Trocar arma" to KeyEvent.KEYCODE_Q,
+        "Placar" to KeyEvent.KEYCODE_TAB,
+        "Confirmar (Enter)" to KeyEvent.KEYCODE_ENTER,
+        "Menu do jogo (Esc)" to KeyEvent.KEYCODE_ESCAPE
+    )
+
+    fun mapping(): MutableMap<Int, Int> {
+        val m = LinkedHashMap<Int, Int>()
+        for (p in Store.gameMap.split(";")) {
+            val a = p.split(":")
+            if (a.size == 2) {
+                val k = a[0].toIntOrNull()
+                val v = a[1].toIntOrNull()
+                if (k != null && v != null) m[k] = v
+            }
+        }
+        return m
+    }
+
+    fun save(m: Map<Int, Int>) {
+        Store.gameMap = m.entries.joinToString(";") { "${it.key}:${it.value}" }
+    }
+
+    /** Perfil para jogar só com o controle remoto da TV. */
+    fun remotePreset(): Map<Int, Int> = linkedMapOf(
+        KeyEvent.KEYCODE_DPAD_UP to KeyEvent.KEYCODE_W,
+        KeyEvent.KEYCODE_DPAD_DOWN to KeyEvent.KEYCODE_S,
+        KeyEvent.KEYCODE_DPAD_LEFT to KeyEvent.KEYCODE_DPAD_LEFT,
+        KeyEvent.KEYCODE_DPAD_RIGHT to KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER to KeyEvent.KEYCODE_CTRL_LEFT,
+        KeyEvent.KEYCODE_ENTER to KeyEvent.KEYCODE_CTRL_LEFT,
+        KeyEvent.KEYCODE_CHANNEL_UP to KeyEvent.KEYCODE_SPACE,
+        KeyEvent.KEYCODE_CHANNEL_DOWN to KeyEvent.KEYCODE_E,
+        KeyEvent.KEYCODE_PROG_RED to KeyEvent.KEYCODE_ESCAPE,
+        KeyEvent.KEYCODE_PROG_GREEN to KeyEvent.KEYCODE_ENTER,
+        KeyEvent.KEYCODE_PROG_YELLOW to KeyEvent.KEYCODE_R,
+        KeyEvent.KEYCODE_PROG_BLUE to KeyEvent.KEYCODE_SHIFT_LEFT,
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE to KeyEvent.KEYCODE_ESCAPE
+    )
+
+    fun keyName(code: Int): String = when (code) {
+        KeyEvent.KEYCODE_DPAD_UP -> "Seta ↑"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "Seta ↓"
+        KeyEvent.KEYCODE_DPAD_LEFT -> "Seta ←"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "Seta →"
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> "OK"
+        KeyEvent.KEYCODE_CHANNEL_UP -> "Canal +"
+        KeyEvent.KEYCODE_CHANNEL_DOWN -> "Canal −"
+        KeyEvent.KEYCODE_PROG_RED -> "Botão vermelho"
+        KeyEvent.KEYCODE_PROG_GREEN -> "Botão verde"
+        KeyEvent.KEYCODE_PROG_YELLOW -> "Botão amarelo"
+        KeyEvent.KEYCODE_PROG_BLUE -> "Botão azul"
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "Play/Pause"
+        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> "Número " + (code - KeyEvent.KEYCODE_0)
+        else -> KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_").replace("BUTTON_", "Botão ").replace('_', ' ')
+    }
+
     const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 }
 
@@ -103,10 +181,14 @@ class GameActivity : ComponentActivity() {
 
     /** Controle remoto da TV = cursor (setas movem, OK clica); controle Bluetooth = teclas do jogo. */
     private var remoteKeys = false
+    private var custom: Map<Int, Int> = emptyMap()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Store.init(this)
+        remoteKeys = Store.gameRemoteKeys
+        custom = Games.mapping()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or WindowManager.LayoutParams.FLAG_FULLSCREEN)
         val url = intent?.getStringExtra("url") ?: Games.TEST_URL
         if (!(url.startsWith("https://") || url.startsWith("http://") || url == Games.TEST_URL)) {
@@ -227,6 +309,13 @@ class GameActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val code = event.keyCode
+        // mapeamento feito pelo usuário (controle Bluetooth sempre; controle remoto quando não está no modo cursor)
+        val mine = custom[code]
+        if (mine != null && code != KeyEvent.KEYCODE_BACK && (isPad(event) || remoteKeys)) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) send(mine, true)
+            if (event.action == KeyEvent.ACTION_UP) send(mine, false)
+            return true
+        }
         // controle remoto: cursor na tela (o controle Bluetooth continua indo direto para o jogo)
         if (!isPad(event)) {
             if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_INFO || code == KeyEvent.KEYCODE_GUIDE) {
@@ -352,5 +441,114 @@ class GameActivity : ComponentActivity() {
             web.destroy()
         }
         super.onDestroy()
+    }
+}
+
+
+/** Tela de mapeamento: escolha a ação e aperte o botão (do controle da TV ou do Bluetooth). */
+class GameMapActivity : ComponentActivity() {
+    private lateinit var list: android.widget.LinearLayout
+    private lateinit var status: TextView
+    private var sel = 0
+    private var waiting = -1
+    private var m: MutableMap<Int, Int> = LinkedHashMap()
+    private val rows = ArrayList<TextView>()
+
+    // primeiras linhas: perfis prontos; depois cada ação
+    private val presets = listOf("Perfil: controle remoto da TV", "Perfil: controle Bluetooth (padrão)", "Começar no modo cursor: ")
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Store.init(this)
+        m = Games.mapping()
+        val sc = android.widget.ScrollView(this)
+        sc.setBackgroundColor(0xFF070A12.toInt())
+        list = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(80, 40, 80, 40)
+        }
+        val title = TextView(this).apply {
+            text = "Mapear controles dos jogos"
+            textSize = 30f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        status = TextView(this).apply {
+            textSize = 17f
+            setTextColor(0xFF9FB2D0.toInt())
+            setPadding(0, 8, 0, 18)
+        }
+        list.addView(title)
+        list.addView(status)
+        val n = presets.size + Games.ACTIONS.size
+        for (i in 0 until n) {
+            val t = TextView(this).apply {
+                textSize = 19f
+                setPadding(26, 14, 26, 14)
+            }
+            rows.add(t)
+            list.addView(t, android.widget.LinearLayout.LayoutParams(-1, -2).apply { topMargin = 6 })
+        }
+        sc.addView(list)
+        setContentView(sc)
+        refresh()
+    }
+
+    private fun refresh() {
+        for ((i, t) in rows.withIndex()) {
+            val txt = if (i < presets.size) {
+                if (i == 2) presets[i] + (if (Store.gameRemoteKeys) "não (remoto joga direto)" else "sim (remoto = cursor)") else presets[i]
+            } else {
+                val (name, key) = Games.ACTIONS[i - presets.size]
+                val btns = m.filterValues { it == key }.keys.joinToString(" · ") { Games.keyName(it) }
+                name + "   →   " + (if (waiting == i) "aperte o botão…" else btns.ifEmpty { "padrão" })
+            }
+            t.text = txt
+            val on = i == sel
+            t.setTextColor(if (on) Color.BLACK else Color.WHITE)
+            t.setBackgroundColor(if (on) Color.WHITE else if (i < presets.size) 0xFF1B2540.toInt() else 0xFF121828.toInt())
+        }
+        status.text = if (waiting >= 0) "Aperte agora o botão que vai fazer essa ação (Voltar cancela)."
+        else "▲▼ escolhe · OK muda · Voltar salva e sai. Menu do controle remoto alterna cursor/teclas dentro do jogo."
+        rows.getOrNull(sel)?.let { r -> r.post { r.requestRectangleOnScreen(android.graphics.Rect(0, 0, r.width, r.height)) } }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return true
+        val code = event.keyCode
+        if (waiting >= 0) {
+            if (code != KeyEvent.KEYCODE_BACK && code != KeyEvent.KEYCODE_HOME) {
+                val target = Games.ACTIONS[waiting - presets.size].second
+                m.remove(code)
+                m[code] = target
+                Games.save(m)
+            }
+            waiting = -1
+            refresh()
+            return true
+        }
+        when (code) {
+            KeyEvent.KEYCODE_DPAD_UP -> sel = maxOf(0, sel - 1)
+            KeyEvent.KEYCODE_DPAD_DOWN -> sel = minOf(rows.size - 1, sel + 1)
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BUTTON_A -> when (sel) {
+                0 -> {
+                    m.clear(); m.putAll(Games.remotePreset()); Games.save(m)
+                    Store.gameRemoteKeys = true
+                    status.text = "Perfil do controle remoto aplicado."
+                }
+                1 -> {
+                    m.clear(); Games.save(m)
+                    Store.gameRemoteKeys = false
+                }
+                2 -> Store.gameRemoteKeys = !Store.gameRemoteKeys
+                else -> waiting = sel
+            }
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_B -> {
+                finish()
+                return true
+            }
+        }
+        refresh()
+        return true
     }
 }

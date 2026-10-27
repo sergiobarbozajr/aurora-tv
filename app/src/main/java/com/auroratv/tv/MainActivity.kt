@@ -925,6 +925,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
+            "gamemap" -> try {
+                context.startActivity(Intent(context, GameMapActivity::class.java))
+            } catch (e: Exception) {
+            }
             "game" -> {
                 if (c.extra == "heavy") showToast("Jogo pesado: o primeiro carregamento pode demorar. Voltar 2x sai.")
                 try {
@@ -2015,7 +2019,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
                     c.kind == "antenna" -> "OK abre a TV na entrada de antena"
-                    c.kind == "game" -> c.desc.take(150)
+                    c.kind == "game" || c.kind == "gamemap" -> c.desc.take(150)
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
