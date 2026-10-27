@@ -38,7 +38,6 @@ object Games {
 
     /** Motores feitos por fãs que pedem o arquivo do SEU jogo original (não vem jogo junto). */
     val OWN_COPY = listOf(
-        G("Halo: Combat Evolved", "Usa a imagem do seu disco", "https://mitchellhynes.com/halo/", "Até 128 jogadores. O site pede a imagem do SEU disco original de Halo; o jogo não vem junto.", heavy = true),
         G("Skate 3", "Usa a sua cópia convertida", "https://skate.aaddpp.lol/", "Motor feito por fã. Pede a SUA cópia do jogo convertida; o jogo não vem junto.", heavy = true)
     )
 
@@ -95,6 +94,15 @@ class GameActivity : ComponentActivity() {
     private lateinit var hint: TextView
     private var lastBack = 0L
     private val held = HashSet<Int>()
+    private lateinit var root: FrameLayout
+    private lateinit var cursor: View
+    private var cx = 0f
+    private var cy = 0f
+    private var full: View? = null
+    private var fullCb: WebChromeClient.CustomViewCallback? = null
+
+    /** Controle remoto da TV = cursor (setas movem, OK clica); controle Bluetooth = teclas do jogo. */
+    private var remoteKeys = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,21 +138,53 @@ class GameActivity : ComponentActivity() {
                 android.util.Log.i("AuroraGame", m.message().take(300))
                 return true
             }
+
+            // tela cheia pedida pelo jogo
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                full?.let { root.removeView(it) }
+                full = view
+                fullCb = callback
+                root.addView(view, 1, FrameLayout.LayoutParams(-1, -1))
+            }
+
+            override fun onHideCustomView() {
+                full?.let { root.removeView(it) }
+                full = null
+                fullCb = null
+            }
         }
         hint = TextView(this).apply {
-            text = "Controle: analógico = andar · setas = virar · A pula · B/R2 atira · Start = Enter · Voltar 2x sai"
+            text = "Controle remoto: setas movem o cursor, OK clica (nome, PLAY). Controle Bluetooth: analógico anda · A pula · B/R2 atira · Start = Enter. Menu alterna o remoto para teclas. Voltar 2x sai"
             setTextColor(Color.WHITE)
             textSize = 15f
             setBackgroundColor(0xAA000000.toInt())
             setPadding(28, 14, 28, 14)
         }
-        val root = FrameLayout(this)
+        root = FrameLayout(this)
         root.addView(web, FrameLayout.LayoutParams(-1, -1))
+        cursor = object : View(this) {
+            private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            override fun onDraw(c: android.graphics.Canvas) {
+                if (remoteKeys) return
+                val path = android.graphics.Path().apply {
+                    moveTo(cx, cy); lineTo(cx, cy + 34f); lineTo(cx + 9f, cy + 26f); lineTo(cx + 16f, cy + 40f)
+                    lineTo(cx + 22f, cy + 37f); lineTo(cx + 15f, cy + 24f); lineTo(cx + 27f, cy + 24f); close()
+                }
+                p.style = android.graphics.Paint.Style.FILL; p.color = Color.WHITE; c.drawPath(path, p)
+                p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.BLACK; c.drawPath(path, p)
+            }
+        }
+        root.addView(cursor, FrameLayout.LayoutParams(-1, -1))
         root.addView(hint, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = 40 })
         setContentView(root)
         web.isFocusable = true
         web.requestFocus()
         web.loadUrl(url)
+        root.post {
+            cx = root.width / 2f
+            cy = root.height / 2f
+            cursor.invalidate()
+        }
         android.util.Log.i("AuroraGame", "abrindo $url")
         hint.postDelayed({ hint.visibility = View.GONE }, 9000)
     }
@@ -169,9 +209,67 @@ class GameActivity : ComponentActivity() {
         else -> 0
     }
 
+    private fun click() {
+        val t = SystemClock.uptimeMillis()
+        val target: View = full ?: web
+        val d = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, cx, cy, 0)
+        val u = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, cx, cy, 0)
+        d.source = InputDevice.SOURCE_TOUCHSCREEN
+        u.source = InputDevice.SOURCE_TOUCHSCREEN
+        target.dispatchTouchEvent(d)
+        target.dispatchTouchEvent(u)
+        d.recycle()
+        u.recycle()
+    }
+
+    private fun isPad(e: KeyEvent): Boolean =
+        e.isFromSource(InputDevice.SOURCE_GAMEPAD) || e.isFromSource(InputDevice.SOURCE_JOYSTICK) || KeyEvent.isGamepadButton(e.keyCode)
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val code = event.keyCode
+        // controle remoto: cursor na tela (o controle Bluetooth continua indo direto para o jogo)
+        if (!isPad(event)) {
+            if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_INFO || code == KeyEvent.KEYCODE_GUIDE) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    remoteKeys = !remoteKeys
+                    cursor.invalidate()
+                    hint.text = if (remoteKeys) "Controle remoto agora manda as setas e o OK para o jogo. Menu volta ao cursor." else "Cursor ligado: setas movem, OK clica."
+                    hint.visibility = View.VISIBLE
+                    hint.removeCallbacks(hideHint)
+                    hint.postDelayed(hideHint, 2500)
+                }
+                return true
+            }
+            if (!remoteKeys && code != KeyEvent.KEYCODE_BACK) {
+                val step = (root.height / 40f) * (1 + minOf(event.repeatCount, 12) / 3f)
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    when (code) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> cx -= step
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> cx += step
+                        KeyEvent.KEYCODE_DPAD_UP -> cy -= step
+                        KeyEvent.KEYCODE_DPAD_DOWN -> cy += step
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (event.repeatCount == 0) click()
+                        else -> return super.dispatchKeyEvent(event)
+                    }
+                    // na borda, rola a página
+                    if (cy < 10f) web.scrollBy(0, -(step * 2).toInt())
+                    if (cy > root.height - 10f) web.scrollBy(0, (step * 2).toInt())
+                    cx = cx.coerceIn(0f, root.width - 4f)
+                    cy = cy.coerceIn(0f, root.height - 4f)
+                    cursor.invalidate()
+                    return true
+                }
+                if (code in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)) return true
+                return super.dispatchKeyEvent(event)
+            }
+        }
         if (code == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && full != null) {
+                fullCb?.onCustomViewHidden()
+                full?.let { root.removeView(it) }
+                full = null
+                return true
+            }
             if (event.action == KeyEvent.ACTION_UP) {
                 val now = SystemClock.uptimeMillis()
                 if (now - lastBack < 2000) {
