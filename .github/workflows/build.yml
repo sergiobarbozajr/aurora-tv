@@ -1,8 +1,11 @@
 name: Build AuroraTV APK
 
+# so publica depois que o teste no emulador (inclusive o portao de fluidez) passar
 on:
-  push:
-    branches: [ main, master ]
+  workflow_run:
+    workflows: [ "Teste de abertura (emulador)" ]
+    types: [ completed ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -10,6 +13,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Baixar o codigo
