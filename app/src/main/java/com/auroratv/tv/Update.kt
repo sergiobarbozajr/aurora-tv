@@ -43,7 +43,10 @@ object Updater {
         thread {
             var res = Check("error", "", null)
             try {
-                val conn = (URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection).apply {
+                // TV: versão "latest". Celular: pré-lançamentos "celular-vX" (separados, sem conflito com a TV)
+                val cel = BuildConfig.FLAVOR == "celular"
+                val api = if (cel) "https://api.github.com/repos/$REPO/releases?per_page=15" else "https://api.github.com/repos/$REPO/releases/latest"
+                val conn = (URL(api).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 15000
                     setRequestProperty("Accept", "application/vnd.github+json")
@@ -53,8 +56,14 @@ object Updater {
                 if (code == 404) {
                     res = Check("none", "", null)
                 } else if (code in 200..299) {
-                    val o = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                    val tag = o.optString("tag_name", "")
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val o = if (!cel) JSONObject(body) else {
+                        val arr = org.json.JSONArray(body)
+                        var f: JSONObject? = null
+                        for (i in 0 until arr.length()) if (arr.getJSONObject(i).optString("tag_name").startsWith("celular-")) { f = arr.getJSONObject(i); break }
+                        f ?: JSONObject("{}")
+                    }
+                    val tag = o.optString("tag_name", "").removePrefix("celular-")
                     var apk: String? = null
                     val assets = o.optJSONArray("assets")
                     if (assets != null) {

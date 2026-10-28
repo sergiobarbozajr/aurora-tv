@@ -45,8 +45,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AuroraTV-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
+
+      - name: Separar os dois aplicativos
+        run: |
+          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk AstroLumeTV.apk
+          cp app/build/outputs/apk/celular/debug/app-celular-debug.apk AstroLume-celular.apk
 
       - name: Publicar versao para a atualizacao dentro do app
         if: github.ref == 'refs/heads/main'
@@ -54,4 +59,13 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.name }}
           name: AuroraTV ${{ steps.ver.outputs.name }}
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: AstroLumeTV.apk
+
+      - name: Publicar a versao para celular (separada da TV)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: celular-v${{ steps.ver.outputs.name }}
+          name: AstroLume celular ${{ steps.ver.outputs.name }}
+          prerelease: true
+          files: AstroLume-celular.apk

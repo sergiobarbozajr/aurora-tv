@@ -24,6 +24,20 @@ android {
         }
     }
 
+    // dois aplicativos separados a partir do mesmo código: um para TV e outro para celular
+    flavorDimensions += "aparelho"
+    productFlavors {
+        create("tv") {
+            dimension = "aparelho"
+            applicationId = "com.auroratv.tv" // mesmo de sempre: a TV continua atualizando por cima
+        }
+        create("celular") {
+            dimension = "aparelho"
+            applicationId = "com.astrolume.celular"
+            resValue("string", "app_name", "AstroLume")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -39,6 +53,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"

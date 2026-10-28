@@ -39,7 +39,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
           script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/tv/debug/app-tv-debug.apk
             adb logcat -c
             adb shell monkey -p com.auroratv.tv -c android.intent.category.LAUNCHER 1
             sleep 30
@@ -57,7 +57,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
           script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/tv/debug/app-tv-debug.apk
             adb shell am force-stop com.auroratv.tv
             adb logcat -c
             adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"

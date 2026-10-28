@@ -202,8 +202,7 @@ class MainActivity : ComponentActivity() {
         isTvUi = when (forced) {
             "tv" -> true
             "mobile" -> false
-            else -> packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
-                (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+            else -> BuildConfig.FLAVOR != "celular"
         }
         requestedOrientation = if (isTvUi) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         if (isTvUi) setContent { AuroraApp(catalog, this) } else setContent { MobileApp(catalog, this) }
