@@ -1643,7 +1643,7 @@ fun IntroAnim(onDone: () -> Unit) {
                     nc.drawRect(x, y, x + d.ds[i], y + d.ds[i], pt)
                 }
                 // pedras: explodem, orbitam a palavra e formam o "TV"
-                val fw = art.frags[0].width.toFloat()
+                val fw = art!!.frags[0].width.toFloat()
                 for (i in d.ftx.indices) {
                     val fo = 1f - eio((t - T_FORM1) / 0.45f)
                     if (fo <= 0f) break
