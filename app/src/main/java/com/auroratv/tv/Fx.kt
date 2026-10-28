@@ -742,8 +742,18 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
 // ---------------------------------------------------------------- logo 3D
 
 object LogoPainter {
+    /** Nome do app no logo: "AstroLume" + "TV". */
+    const val WORD = "AstroLume"
+
+    /** Fonte do logo (Inter Display Black Itálica, licença OFL). Definida ao abrir o app. */
+    var face: Typeface? = null
+
+    /** Textura lunar branca do "TV" (crateras). Gerada uma vez em segundo plano. */
+    @Volatile
+    var moon: Bitmap? = null
+
     fun paint(size: Float): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        typeface = face ?: Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
         textSize = size
         textAlign = Paint.Align.LEFT
     }
@@ -753,50 +763,71 @@ object LogoPainter {
         return cy - (fm.ascent + fm.descent) / 2f
     }
 
-    fun gap(size: Float) = size * 0.053f
+    fun gap(size: Float) = size * 0.09f
 
     fun width(size: Float): Float {
         val p = paint(size)
-        return p.measureText("Aurora") + gap(size) + p.measureText("TV")
+        return p.measureText(WORD) + gap(size) + p.measureText("TV")
     }
 
-    /** Desenha "AuroraTV" com volume (camadas), brilho e degradê. x0 = esquerda, cy = centro vertical. */
+    /** "AstroLume" sólido: volume, degradê ciano → violeta → rosa, reflexo de vidro e brilho correndo. */
+    fun drawWord(nc: android.graphics.Canvas, x0: Float, base: Float, size: Float, alpha: Float, sweepT: Float) {
+        val p = paint(size)
+        val w = p.measureText(WORD)
+        val a255 = (255 * alpha).toInt().coerceIn(0, 255)
+        val depth = max(3, (size * 0.12f).toInt())
+        for (i in depth downTo 1) {
+            val m = 1f - i / depth.toFloat()
+            p.color = AColor.argb(a255, (30 + 40 * m).toInt(), (22 + 40 * m).toInt(), (70 + 80 * m).toInt())
+            nc.drawText(WORD, x0 + i * size * 0.0038f, base + i * size * 0.0055f, p)
+        }
+        p.shader = LinearGradient(x0, 0f, x0 + w, 0f, intArrayOf(0xFF7FE9FF.toInt(), 0xFF9B84FF.toInt(), 0xFFFF7FD8.toInt()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        p.setShadowLayer(size * 0.25f, 0f, 0f, AColor.argb((140 * alpha).toInt(), 150, 120, 255))
+        p.alpha = a255
+        nc.drawText(WORD, x0, base, p)
+        p.clearShadowLayer()
+        p.shader = LinearGradient(0f, base - size * 0.8f, 0f, base, intArrayOf(0x8CFFFFFF.toInt(), 0x14FFFFFF, 0x00FFFFFF), floatArrayOf(0f, 0.45f, 0.5f), Shader.TileMode.CLAMP)
+        p.alpha = a255
+        nc.drawText(WORD, x0, base, p)
+        if (sweepT >= 0f) {
+            val sx = x0 - 200f * size / 118f + ((sweepT * 260f * size / 118f) % (w + 400f * size / 118f))
+            val band = 60f * size / 118f
+            p.shader = LinearGradient(sx - band, 0f, sx + band, 0f, intArrayOf(0x00FFFFFF, 0x59FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+            p.alpha = a255
+            nc.drawText(WORD, x0, base, p)
+        }
+    }
+
+    /** "TV" branco lunar com crateras de impacto. */
+    fun drawTv(nc: android.graphics.Canvas, x: Float, base: Float, size: Float, alpha: Float) {
+        val p = paint(size)
+        val a255 = (255 * alpha).toInt().coerceIn(0, 255)
+        val mb = moon
+        p.setShadowLayer(size * 0.07f, size * 0.025f, size * 0.035f, AColor.argb((190 * alpha).toInt(), 0, 0, 0))
+        if (mb != null) {
+            val sh = android.graphics.BitmapShader(mb, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+            sh.setLocalMatrix(android.graphics.Matrix().apply { setScale(size / 215f, size / 215f); postTranslate(x, 0f) })
+            p.shader = sh
+        } else p.color = AColor.rgb(226, 228, 234)
+        p.alpha = a255
+        nc.drawText("TV", x, base, p)
+        p.clearShadowLayer()
+        p.shader = LinearGradient(0f, base - size * 0.8f, 0f, base + size * 0.1f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF, 0x38000014), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
+        p.alpha = a255
+        nc.drawText("TV", x, base, p)
+        p.shader = null
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = max(1f, size * 0.011f)
+        p.color = AColor.argb((140 * alpha).toInt(), 255, 255, 255)
+        nc.drawText("TV", x, base, p)
+    }
+
+    /** Logo completo "AstroLume" + "TV". x0 = esquerda, cy = centro vertical. */
     fun draw(nc: android.graphics.Canvas, x0: Float, cy: Float, size: Float, alpha: Float, glow: Boolean) {
         val p = paint(size)
         val base = baseline(p, cy)
-        val wA = p.measureText("Aurora")
-        val gp = gap(size)
-        val xT = x0 + wA + gp
-        val depth = max(3, (size * 0.14f).toInt())
-        val k = size / 150f
-        val a255 = (255 * alpha).toInt().coerceIn(0, 255)
-        for (i in depth downTo 1) {
-            val m = 1f - i / depth.toFloat()
-            p.shader = null
-            p.color = AColor.argb(a255, (18 + 34 * m).toInt(), (52 + 70 * m).toInt(), (104 + 70 * m).toInt())
-            if (i == depth && glow) p.setShadowLayer(size * 0.3f, 0f, 0f, AColor.argb((150 * alpha).toInt(), 108, 198, 255)) else p.clearShadowLayer()
-            nc.drawText("Aurora", x0 + i * 0.55f * k, base + i * 0.8f * k, p)
-            nc.drawText("TV", xT + i * 0.55f * k, base + i * 0.8f * k, p)
-        }
-        p.clearShadowLayer()
-        p.shader = LinearGradient(
-            0f, base - size * 0.75f, 0f, base + size * 0.2f,
-            intArrayOf(0xFFFFFFFF.toInt(), 0xFFDCECFF.toInt(), 0xFF8FB8E8.toInt()), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-        )
-        p.alpha = a255
-        nc.drawText("Aurora", x0, base, p)
-        p.shader = LinearGradient(
-            0f, base - size * 0.75f, 0f, base + size * 0.2f,
-            intArrayOf(0xFFE9F8FF.toInt(), 0xFF6CC6FF.toInt(), 0xFF2F86D8.toInt()), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-        )
-        p.alpha = a255
-        nc.drawText("TV", xT, base, p)
-        p.shader = null
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = max(1f, size * 0.009f)
-        p.color = AColor.argb((178 * alpha).toInt(), 255, 255, 255)
-        nc.drawText("Aurora", x0, base, p)
-        nc.drawText("TV", xT, base, p)
+        drawWord(nc, x0, base, size, alpha, -1f)
+        drawTv(nc, x0 + p.measureText(WORD) + gap(size), base, size, alpha)
     }
 }
 
@@ -905,97 +936,12 @@ fun FamilyScene(modifier: Modifier) {
     }
 }
 
-// ---------------------------------------------------------------- abertura
-
-class IntroData(
-    val x0: Float, val cy: Float, val size: Float, val ix: Float, val iy: Float,
-    val ax: FloatArray, val ay: FloatArray, val adx: FloatArray, val ady: FloatArray, val adl: FloatArray, val afr: BooleanArray,
-    val tx: FloatArray, val ty: FloatArray, val tsx: FloatArray, val tsy: FloatArray, val tw: FloatArray, val tdl: FloatArray
-)
-
-private fun buildIntroData(): IntroData {
-    val size = 118f
-    val cy = 360f
-    val p = LogoPainter.paint(size)
-    val wA = p.measureText("Aurora")
-    val wT = p.measureText("TV")
-    val gp = LogoPainter.gap(size)
-    val x0 = (1280f - (wA + gp + wT)) / 2f
-    val base = LogoPainter.baseline(p, cy)
-    val bmp = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888)
-    val c = android.graphics.Canvas(bmp)
-    p.color = AColor.WHITE
-    val px = IntArray(1280 * 720)
-
-    fun sample(txt: String, x: Float, w: Float): List<FloatArray> {
-        bmp.eraseColor(0)
-        c.drawText(txt, x, base, p)
-        bmp.getPixels(px, 0, 1280, 0, 0, 1280, 720)
-        val out = ArrayList<FloatArray>()
-        var y = (cy - size * 0.75f).toInt().coerceAtLeast(0)
-        val yEnd = (cy + size * 0.75f).toInt().coerceAtMost(719)
-        while (y < yEnd) {
-            var xx = x.toInt().coerceAtLeast(0)
-            val xEnd = (x + w + 6f).toInt().coerceAtMost(1279)
-            while (xx < xEnd) {
-                if ((px[y * 1280 + xx] ushr 24) > 128) out.add(floatArrayOf(xx.toFloat(), y.toFloat()))
-                xx += 3
-            }
-            y += 3
-        }
-        return out
-    }
-
-    val ix = x0 + wA - 34f
-    val iy = cy - 8f
-    val rnd = java.util.Random(5)
-    val a = sample("Aurora", x0, wA)
-    val t = sample("TV", x0 + wA + gp, wT)
-    val an = a.size
-    val ax = FloatArray(an)
-    val ay = FloatArray(an)
-    val adx = FloatArray(an)
-    val ady = FloatArray(an)
-    val adl = FloatArray(an)
-    val afr = BooleanArray(an)
-    for (i in 0 until an) {
-        val q = a[i]
-        ax[i] = q[0]
-        ay[i] = q[1]
-        val dx = q[0] - ix
-        val dy = q[1] - iy
-        val d = hypot(dx, dy)
-        val fr = d < 150f || rnd.nextFloat() < 0.04f
-        val ang = Math.atan2(dy.toDouble(), dx.toDouble()).toFloat() + (rnd.nextFloat() - 0.5f) * 0.6f
-        val m = if (fr) (60f + rnd.nextFloat() * 220f) * (if (d < 150f) 1.2f else 0.6f) else 0f
-        adx[i] = cos(ang) * m
-        ady[i] = sin(ang) * m
-        adl[i] = rnd.nextFloat() * 0.5f
-        afr[i] = fr
-    }
-    val tn = t.size
-    val tx = FloatArray(tn)
-    val ty = FloatArray(tn)
-    val tsx = FloatArray(tn)
-    val tsy = FloatArray(tn)
-    val tw = FloatArray(tn)
-    val tdl = FloatArray(tn)
-    for (i in 0 until tn) {
-        tx[i] = t[i][0]
-        ty[i] = t[i][1]
-        tsx[i] = ix + (rnd.nextFloat() - 0.5f) * 30f
-        tsy[i] = iy + (rnd.nextFloat() - 0.5f) * 30f
-        tw[i] = (rnd.nextFloat() - 0.5f) * 140f
-        tdl[i] = rnd.nextFloat() * 0.45f
-    }
-    bmp.recycle()
-    return IntroData(x0, cy, size, ix, iy, ax, ay, adx, ady, adl, afr, tx, ty, tsx, tsy, tw, tdl)
-}
+// ---------------------------------------------------------------- abertura (AstroLume)
 
 private fun cl(x: Float) = max(0f, min(1f, x))
 private fun eo(x: Float): Float {
-    val v = 1f - cl(x)
-    return 1f - v * v * v
+    val v = cl(x)
+    return 1f - (1f - v) * (1f - v)
 }
 
 private fun ei(x: Float): Float {
@@ -1008,7 +954,360 @@ private fun eio(x: Float): Float {
     return if (v < 0.5f) 2f * v * v else 1f - (-2f * v + 2f) * (-2f * v + 2f) / 2f
 }
 
-/** Abertura: meteoro vindo de uma galáxia distante bate em "Aurora" e forma "TV". Qualquer tecla pula (feito fora). */
+/** Ruído procedural (gera pedra, crateras e fumaça sem nenhuma imagem no APK). */
+private object Noise {
+    fun hash(x: Int, y: Int, s: Int): Float {
+        var h = x * 374761393 + y * 668265263 + s * 69069
+        h = (h xor (h ushr 13)) * 1274126177
+        return ((h xor (h ushr 16)).toLong() and 0xffffffffL) / 4294967296f
+    }
+
+    fun v(x: Float, y: Float, s: Int): Float {
+        val xi = kotlin.math.floor(x).toInt()
+        val yi = kotlin.math.floor(y).toInt()
+        val xf = x - xi
+        val yf = y - yi
+        val u = xf * xf * (3 - 2 * xf)
+        val w = yf * yf * (3 - 2 * yf)
+        val a = hash(xi, yi, s)
+        val b = hash(xi + 1, yi, s)
+        val c = hash(xi, yi + 1, s)
+        val d = hash(xi + 1, yi + 1, s)
+        return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w
+    }
+
+    fun fbm(x: Float, y: Float, o: Int, s: Int): Float {
+        var f = 0f
+        var a = 0.5f
+        var fr = 1f
+        for (i in 0 until o) {
+            f += a * v(x * fr, y * fr, s + i * 17)
+            fr *= 2.03f
+            a *= 0.5f
+        }
+        return f
+    }
+
+    fun ridged(x: Float, y: Float, o: Int, s: Int): Float {
+        var f = 0f
+        var a = 0.5f
+        var fr = 1f
+        for (i in 0 until o) {
+            f += a * (1f - kotlin.math.abs(v(x * fr, y * fr, s + i * 31) * 2f - 1f))
+            fr *= 2.1f
+            a *= 0.5f
+        }
+        return f
+    }
+}
+
+private class Crater(val x: Float, val y: Float, val r: Float, val dp: Float)
+
+/** Relevo (altura) com crateras, repetindo nas bordas; luz vinda do alto à esquerda. */
+private fun relief(S: Int, craters: List<Crater>, base: (Int, Int) -> Float): FloatArray {
+    val h = FloatArray(S * S)
+    for (y in 0 until S) for (x in 0 until S) {
+        var v = base(x, y)
+        for (c in craters) {
+            var dx = x - c.x
+            var dy = y - c.y
+            if (dx > S / 2) dx -= S
+            if (dx < -S / 2) dx += S
+            if (dy > S / 2) dy -= S
+            if (dy < -S / 2) dy += S
+            val q = kotlin.math.sqrt(dx * dx + dy * dy) / c.r
+            if (q < 1f) v -= c.dp * (1f - q * q) else if (q < 1.4f) v += c.dp * 0.42f * (1f - (q - 1f) / 0.4f)
+        }
+        h[y * S + x] = v
+    }
+    return h
+}
+
+private fun shade(h: FloatArray, S: Int, x: Int, y: Int, k: Float): Float {
+    val xl = (x - 1 + S) % S
+    val xr = (x + 1) % S
+    val yu = (y - 1 + S) % S
+    val yd = (y + 1) % S
+    var nx = (h[y * S + xl] - h[y * S + xr]) * k
+    var ny = (h[yu * S + x] - h[yd * S + x]) * k
+    var nz = 1f
+    val nl = kotlin.math.sqrt(nx * nx + ny * ny + nz * nz)
+    nx /= nl
+    ny /= nl
+    nz /= nl
+    return max(0f, nx * -0.55f + ny * -0.6f + nz * 0.58f)
+}
+
+/** Rocha escura do meteoro (basalto com crateras e veios). */
+private fun rockBitmap(S: Int): Bitmap {
+    val r = java.util.Random(42)
+    val cr = List(30) { Crater(r.nextFloat() * S, r.nextFloat() * S, 4f + r.nextFloat() * r.nextFloat() * 34f, 0.08f + r.nextFloat() * 0.16f) }
+    val h = relief(S, cr) { x, y -> Noise.fbm(x / 70f, y / 70f, 5, 3) * 0.75f + Noise.ridged(x / 48f, y / 48f, 3, 9) * 0.35f }
+    val px = IntArray(S * S)
+    for (y in 0 until S) for (x in 0 until S) {
+        val sh = shade(h, S, x, y, 7f)
+        val m = Noise.fbm(x / 32f, y / 32f, 3, 77)
+        val sp = if (Noise.hash(x, y, 5) > 0.996f) 0.5f else 0f
+        val k = 0.22f + sh * 1.05f + sp
+        px[y * S + x] = AColor.rgb(min(255f, (52 + 60 * m) * k).toInt(), min(255f, (48 + 52 * m) * k).toInt(), min(255f, (45 + 40 * m) * k).toInt())
+    }
+    return Bitmap.createBitmap(px, S, S, Bitmap.Config.ARGB_8888)
+}
+
+/** Superfície lunar branca com crateras de impacto (para o "TV"). */
+fun moonBitmap(S: Int): Bitmap {
+    val r = java.util.Random(77)
+    val cr = List(60) { Crater(r.nextFloat() * S, r.nextFloat() * S, 3f + Math.pow(r.nextFloat().toDouble(), 2.2).toFloat() * 38f, 0.12f + r.nextFloat() * 0.2f) }
+    val h = relief(S, cr) { x, y -> Noise.fbm(x / 55f, y / 55f, 4, 41) * 0.35f }
+    val px = IntArray(S * S)
+    for (y in 0 until S) for (x in 0 until S) {
+        val sh = shade(h, S, x, y, 9f)
+        val mar = Noise.fbm(x / 95f, y / 95f, 3, 90)
+        val alb = 232f - 55f * cl((mar - 0.45f) * 3f) + 12f * (Noise.fbm(x / 7f, y / 7f, 2, 5) - 0.5f)
+        val v = min(255f, alb * (0.5f + 0.62f * sh)).toInt()
+        px[y * S + x] = AColor.rgb(v, v, min(255, (v * 1.03f).toInt()))
+    }
+    return Bitmap.createBitmap(px, S, S, Bitmap.Config.ARGB_8888)
+}
+
+/** Corpo do meteoro: forma irregular com volume (bordas escurecem como uma esfera). */
+private fun meteorBitmap(rock: Bitmap, S: Int): Bitmap {
+    val rs = rock.width
+    val src = IntArray(rs * rs)
+    rock.getPixels(src, 0, rs, 0, 0, rs, rs)
+    val px = IntArray(S * S)
+    for (y in 0 until S) for (x in 0 until S) {
+        val dx = (x - S / 2f) / (S / 2f)
+        val dy = (y - S / 2f) / (S / 2f)
+        val rr = kotlin.math.hypot(dx, dy)
+        val th = kotlin.math.atan2(dy, dx)
+        val R = 0.86f * (1f + 0.24f * (Noise.v(cos(th) * 2.2f + 5f, sin(th) * 2.2f + 5f, 11) - 0.5f) + 0.1f * (Noise.v(cos(th) * 6f + 9f, sin(th) * 6f + 9f, 13) - 0.5f))
+        if (rr > R) continue
+        val q = rr / R
+        val z = kotlin.math.sqrt(1f - q * q)
+        val sl = max(0f, (-dx / R) * 0.55f + (-dy / R) * 0.55f + z * 0.6f)
+        val lim = 0.25f + 0.95f * sl
+        val c = src[(y % rs) * rs + (x % rs)]
+        val edge = (cl((R - rr) * 40f) * 255).toInt()
+        px[y * S + x] = AColor.argb(edge, (AColor.red(c) * lim).toInt().coerceAtMost(255), (AColor.green(c) * lim).toInt().coerceAtMost(255), (AColor.blue(c) * lim).toInt().coerceAtMost(255))
+    }
+    return Bitmap.createBitmap(px, S, S, Bitmap.Config.ARGB_8888)
+}
+
+/** Pedaços de rocha com contorno irregular. */
+private fun fragBitmaps(rock: Bitmap): List<Bitmap> {
+    val r = java.util.Random(7)
+    val S = 64
+    return List(14) {
+        val b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val path = android.graphics.Path()
+        val n = 7 + r.nextInt(5)
+        for (i in 0 until n) {
+            val a = i / n.toFloat() * 6.2832f + r.nextFloat() * 0.4f
+            val rr = S * 0.5f * (0.62f + r.nextFloat() * 0.38f)
+            val px = S / 2f + cos(a) * rr
+            val py = S / 2f + sin(a) * rr
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close()
+        c.clipPath(path)
+        val sx = r.nextInt(rock.width - S)
+        val sy = r.nextInt(rock.height - S)
+        c.drawBitmap(rock, android.graphics.Rect(sx, sy, sx + S, sy + S), android.graphics.Rect(0, 0, S, S), null)
+        val p = Paint()
+        p.shader = LinearGradient(0f, 0f, S.toFloat(), S.toFloat(), intArrayOf(0x2EFFF0DC, 0x00000000, 0x8C000000.toInt()), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, S.toFloat(), S.toFloat(), p)
+        b
+    }
+}
+
+/** Nuvem de fumaça macia (cinza, com ruído). */
+private fun puffBitmap(): Bitmap {
+    val S = 96
+    val px = IntArray(S * S)
+    for (y in 0 until S) for (x in 0 until S) {
+        val dx = (x - S / 2f) / (S / 2f)
+        val dy = (y - S / 2f) / (S / 2f)
+        val rr = kotlin.math.hypot(dx, dy)
+        val n = Noise.fbm(x / 13f, y / 13f, 4, 21)
+        val a = cl((1f - rr) * 1.6f) * cl(n * 1.6f - 0.25f)
+        val c = (150 + 70 * n).toInt().coerceIn(0, 255)
+        px[y * S + x] = AColor.argb((255 * a * a).toInt(), c, (c * 0.97f).toInt(), (c * 0.93f).toInt())
+    }
+    return Bitmap.createBitmap(px, S, S, Bitmap.Config.ARGB_8888)
+}
+
+class IntroData(
+    val rock: Bitmap, val meteor: Bitmap, val frags: List<Bitmap>, val puff: Bitmap,
+    val size: Float, val x0: Float, val base: Float, val xT: Float, val wA: Float, val ix: Float, val iy: Float, val ax: Float, val cy: Float,
+    // estrelas
+    val sx: FloatArray, val sy: FloatArray, val sa: FloatArray, val sz: FloatArray,
+    // líquido: alvo (polar a partir do buraco negro), atraso, cor (12 faixas)
+    val lr: FloatArray, val la: FloatArray, val ldl: FloatArray, val lsp: FloatArray, val lph: FloatArray, val lbin: IntArray,
+    // pedras que formam o "TV"
+    val ftx: FloatArray, val fty: FloatArray, val fvx: FloatArray, val fvy: FloatArray, val frot: FloatArray, val fvr: FloatArray, val fs: FloatArray,
+    val fspr: IntArray, val fdl: FloatArray, val foa: FloatArray, val fow: FloatArray, val forx: FloatArray, val fory: FloatArray,
+    // poeira lunar
+    val dvx: FloatArray, val dvy: FloatArray, val ds: FloatArray, val dl: FloatArray, val dtw: FloatArray,
+    // fumaça
+    val tj: FloatArray, val tj2: FloatArray, val tr: FloatArray, val bvx: FloatArray, val bvy: FloatArray, val br: FloatArray, val bte: FloatArray
+)
+
+private const val BHX = 640f
+private const val BHY = 340f
+private const val T_BH0 = 0.4f
+private const val T_BH1 = 1.3f
+private const val T_LQ0 = 1.2f
+private const val T_LQD = 1.7f
+private const val T_BHX = 3.9f
+private const val T_SOL = 5.0f
+private const val TS0 = 5.2f
+private const val TI = 6.7f
+private const val T_ORB = 7.4f
+private const val T_FORM = 8.6f
+private const val T_FORM1 = 9.9f
+private const val T_END = 10.6f
+private const val MSX = 1240f
+private const val MSY = -60f
+
+private fun buildIntroData(): IntroData {
+    val rock = rockBitmap(256)
+    if (LogoPainter.moon == null) LogoPainter.moon = moonBitmap(256)
+    val meteor = meteorBitmap(rock, 256)
+    val frags = fragBitmaps(rock)
+    val puff = puffBitmap()
+    val size = 118f
+    val cy = 350f
+    val p = LogoPainter.paint(size)
+    val wA = p.measureText(LogoPainter.WORD)
+    val wT = p.measureText("TV")
+    val gp = LogoPainter.gap(size)
+    val x0 = (1280f - (wA + gp + wT)) / 2f
+    val xT = x0 + wA + gp
+    val base = LogoPainter.baseline(p, cy)
+    val r = java.util.Random(3)
+    // céu: muitas estrelas, mais densas na faixa da galáxia no horizonte
+    val n = 1500
+    val sx = FloatArray(n)
+    val sy = FloatArray(n)
+    val sa = FloatArray(n)
+    val sz = FloatArray(n)
+    for (i in 0 until n) {
+        sx[i] = r.nextFloat() * 1280f
+        sy[i] = if (r.nextFloat() < 0.45f) 720f * 0.78f + (r.nextFloat() + r.nextFloat() + r.nextFloat() - 1.5f) * 90f else r.nextFloat() * 720f
+        sa[i] = 0.4f + r.nextFloat() * 0.6f
+        sz[i] = r.nextFloat() * r.nextFloat() * r.nextFloat() * 2.4f + 0.7f
+    }
+    // amostras da palavra para o líquido e do "TV" para as pedras
+    val bmp = Bitmap.createBitmap(1280, 720, Bitmap.Config.ALPHA_8)
+    val c = android.graphics.Canvas(bmp)
+    p.color = AColor.WHITE
+    c.drawText(LogoPainter.WORD, x0, base, p)
+    val buf = java.nio.ByteBuffer.allocate(bmp.byteCount)
+    bmp.copyPixelsToBuffer(buf)
+    val px = buf.array()
+    val rb = bmp.rowBytes
+    val lq = ArrayList<FloatArray>()
+    var y = 0
+    while (y < 720) {
+        var x = max(0, x0.toInt() - 10)
+        while (x < min(1279f, x0 + wA + 10f)) {
+            if ((px[y * rb + x].toInt() and 0xff) > 120) {
+                val dx = x - BHX
+                val dy = y - BHY
+                val k = cl((x - x0) / wA)
+                lq.add(floatArrayOf(kotlin.math.hypot(dx, dy), kotlin.math.atan2(dy, dx), k * 1.15f + r.nextFloat() * 0.35f, 2.2f + r.nextFloat() * 1.6f, r.nextFloat() * 6.28f, min(11f, k * 12f)))
+            }
+            x += 3
+        }
+        y += 3
+    }
+    bmp.eraseColor(0)
+    c.drawText("TV", xT, base, p)
+    buf.clear()
+    bmp.copyPixelsToBuffer(buf)
+    val tv = ArrayList<FloatArray>()
+    y = 0
+    while (y < 720) {
+        var x = max(0, xT.toInt() - 4)
+        while (x < min(1279f, xT + wT + 6f)) {
+            if ((px[y * rb + x].toInt() and 0xff) > 140) tv.add(floatArrayOf(x + (r.nextFloat() - 0.5f) * 3f, y + (r.nextFloat() - 0.5f) * 3f))
+            x += 7
+        }
+        y += 7
+    }
+    bmp.recycle()
+    val fn = tv.size
+    val ftx = FloatArray(fn) { tv[it][0] }
+    val fty = FloatArray(fn) { tv[it][1] }
+    val fvx = FloatArray(fn)
+    val fvy = FloatArray(fn)
+    for (i in 0 until fn) {
+        val a = r.nextFloat() * 6.2832f
+        val sp = 160f + r.nextFloat() * 420f
+        fvx[i] = cos(a) * sp
+        fvy[i] = sin(a) * sp - 100f
+    }
+    val dn = 420
+    val dvx = FloatArray(dn)
+    val dvy = FloatArray(dn)
+    for (i in 0 until dn) {
+        val a = r.nextFloat() * 6.2832f
+        val sp = 60f + Math.pow(r.nextFloat().toDouble(), 0.7).toFloat() * 520f
+        dvx[i] = cos(a) * sp
+        dvy[i] = sin(a) * sp - 60f
+    }
+    val bn = 30
+    val bvx = FloatArray(bn)
+    val bvy = FloatArray(bn)
+    for (i in 0 until bn) {
+        val a = r.nextFloat() * 6.2832f
+        val sp = 40f + r.nextFloat() * 190f
+        bvx[i] = cos(a) * sp
+        bvy[i] = sin(a) * sp * 0.7f - 30f
+    }
+    return IntroData(
+        rock, meteor, frags, puff, size, x0, base, xT, wA, x0 + wA - 30f, cy + 4f, x0 + wA / 2f, cy,
+        sx, sy, sa, sz,
+        FloatArray(lq.size) { lq[it][0] }, FloatArray(lq.size) { lq[it][1] }, FloatArray(lq.size) { lq[it][2] },
+        FloatArray(lq.size) { lq[it][3] }, FloatArray(lq.size) { lq[it][4] }, IntArray(lq.size) { lq[it][5].toInt() },
+        ftx, fty, fvx, fvy, FloatArray(fn) { r.nextFloat() * 6.28f }, FloatArray(fn) { (r.nextFloat() - 0.5f) * 9f }, FloatArray(fn) { 9f + r.nextFloat() * 6f },
+        IntArray(fn) { r.nextInt(frags.size) }, FloatArray(fn) { r.nextFloat() * 0.5f }, FloatArray(fn) { r.nextFloat() * 6.28f },
+        FloatArray(fn) { 0.9f + r.nextFloat() * 0.7f }, FloatArray(fn) { wA * 0.56f + r.nextFloat() * 70f }, FloatArray(fn) { size * 0.78f + r.nextFloat() * 40f },
+        dvx, dvy, FloatArray(dn) { 0.6f + r.nextFloat() * 1.6f }, FloatArray(dn) { 1.8f + r.nextFloat() * 2.8f }, FloatArray(dn) { r.nextFloat() * 6.28f },
+        FloatArray(64) { r.nextFloat() - 0.5f }, FloatArray(64) { r.nextFloat() - 0.5f }, FloatArray(64) { 0.6f + r.nextFloat() * 0.6f },
+        bvx, bvy, FloatArray(bn) { 0.5f + r.nextFloat() * 0.7f }, FloatArray(bn) { TI + r.nextFloat() * 0.15f }
+    )
+}
+
+private val LQ_COLORS: IntArray = IntArray(12) {
+    val k = it / 11f
+    val a = if (k < 0.5f) intArrayOf(95, 227, 255) else intArrayOf(138, 108, 255)
+    val b = if (k < 0.5f) intArrayOf(138, 108, 255) else intArrayOf(255, 108, 210)
+    val f = if (k < 0.5f) k * 2f else (k - 0.5f) * 2f
+    AColor.rgb((a[0] + (b[0] - a[0]) * f).toInt(), (a[1] + (b[1] - a[1]) * f).toInt(), (a[2] + (b[2] - a[2]) * f).toInt())
+}
+
+private fun metPos(d: IntroData, t: Float): FloatArray {
+    val q = (t - TS0) / (TI - TS0)
+    val s = ei(q) * 0.85f + 0.15f * cl(q)
+    return floatArrayOf(MSX + (d.ix - MSX) * s, MSY + (d.iy - MSY) * s, 1.9f + (0.3f - 1.9f) * eo(q))
+}
+
+/** Efeito "líquido": desfoque + corte de transparência (as gotas se fundem). Android 12+. */
+private fun gooEffect(): androidx.compose.ui.graphics.RenderEffect? {
+    if (android.os.Build.VERSION.SDK_INT < 31) return null
+    val m = android.graphics.ColorMatrix(floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 24f, -2550f))
+    val blur = android.graphics.RenderEffect.createBlurEffect(4.5f, 4.5f, Shader.TileMode.DECAL)
+    return android.graphics.RenderEffect.createColorFilterEffect(android.graphics.ColorMatrixColorFilter(m), blur).asComposeRenderEffect()
+}
+
+/**
+ * Abertura: universo estrelado → buraco negro → "AstroLume" sai dele como líquido em redemoinho
+ * (moléculas vivas) → fica sólida → meteoro de pedra explode no "e" final → as pedras orbitam a palavra
+ * e formam o "TV" branco lunar com crateras. Qualquer tecla pula (feito fora).
+ */
 @Composable
 fun IntroAnim(onDone: () -> Unit) {
     var data by remember { mutableStateOf<IntroData?>(null) }
@@ -1023,134 +1322,350 @@ fun IntroAnim(onDone: () -> Unit) {
             val n = androidx.compose.runtime.withFrameNanos { it }
             if (start < 0) start = n
             tSec = (n - start) / 1_000_000_000f
-            if (tSec > 6.3f) {
+            if (tSec > T_END) {
                 onDone()
                 break
             }
         }
     }
-    val pAur = remember { Paint().apply { strokeCap = Paint.Cap.SQUARE; isAntiAlias = false } }
-    val pTv = remember { Paint().apply { strokeCap = Paint.Cap.SQUARE; isAntiAlias = false } }
-    Box(Modifier.fillMaxSize().background(Color(0xE0020309))) {
+    val pt = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
+    val pts = remember { Paint().apply { strokeCap = Paint.Cap.ROUND } }
+    val pb = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
+    val add = remember { android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD) }
+    val goo = remember { gooEffect() }
+    val glow = remember {
+        if (android.os.Build.VERSION.SDK_INT >= 31) android.graphics.RenderEffect.createBlurEffect(10f, 10f, Shader.TileMode.DECAL).asComposeRenderEffect() else null
+    }
+    val lighten = remember {
+        List(6) { i ->
+            val b = 1f + 1.9f * i / 5f
+            val s = 1f - 0.8f * i / 5f
+            val cm = android.graphics.ColorMatrix()
+            cm.setSaturation(s)
+            cm.postConcat(android.graphics.ColorMatrix(floatArrayOf(b, 0f, 0f, 0f, 0f, 0f, b, 0f, 0f, 0f, 0f, 0f, b, 0f, 0f, 0f, 0f, 0f, 1f, 0f)))
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) }
+        }
+    }
+    val mtx = remember { android.graphics.Matrix() }
+
+    // camada do líquido (desenhada sozinha para receber o efeito de fusão)
+    @Composable
+    fun liquidLayer(isGlow: Boolean) {
+        Canvas(Modifier.fillMaxSize().graphicsLayer {
+            val t = tSec
+            alpha = (1f - eio((t - T_SOL) / 0.7f)) * (if (isGlow) 0.35f else 1f)
+            renderEffect = if (isGlow) glow else goo
+            if (isGlow) compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+        }) {
+            val d = data ?: return@Canvas
+            val t = tSec
+            if (t < T_LQ0 || t > T_SOL + 0.7f) return@Canvas
+            val u = size.width / 1280f
+            val nc = drawContext.canvas.nativeCanvas
+            nc.save()
+            nc.scale(u, u)
+            if (t > TI && t < TI + 0.4f) {
+                val k = (1f - (t - TI) / 0.4f) * 7f
+                nc.translate(sin(t * 90f) * k, cos(t * 77f) * k)
+            }
+            val sol = eio((t - T_SOL) / 0.7f)
+            val n = d.lr.size
+            // agrupa por cor para desenhar em lote (rápido)
+            val arr = FloatArray(n * 2)
+            for (bin in 0 until 12) {
+                var m = 0
+                var szSum = 0f
+                for (i in 0 until n) {
+                    if (d.lbin[i] != bin) continue
+                    val s = eio((t - T_LQ0 - d.ldl[i]) / T_LQD)
+                    if (s <= 0f) continue
+                    val th = d.la[i] + (1f - s) * 8.17f
+                    val rr = d.lr[i] * s
+                    var x = BHX + cos(th) * rr
+                    var y = BHY + sin(th) * rr
+                    val live = (if (s > 0.98f) 1f else 0f) * (1f - sol)
+                    x += sin(t * d.lsp[i] + d.lph[i]) * 1.6f * live
+                    y += cos(t * d.lsp[i] * 1.3f + d.lph[i]) * 1.6f * live
+                    arr[m * 2] = x
+                    arr[m * 2 + 1] = y
+                    szSum += 1.7f - 0.7f * s
+                    m++
+                }
+                if (m == 0) continue
+                pts.color = LQ_COLORS[bin]
+                pts.strokeWidth = 2 * 2.9f * (szSum / m) * (1f + 0.12f * sin(t * 4f + bin))
+                nc.drawPoints(arr, 0, m * 2, pts)
+            }
+            nc.restore()
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color(0xFF010207))) {
+        // 1) céu e buraco negro
         Canvas(Modifier.fillMaxSize()) {
             val d = data ?: return@Canvas
             val t = tSec
             val u = size.width / 1280f
-            val ti = 2.1f
-            val fadeIn = cl(t / 0.9f)
-            val a3 = eio((t - ti - 1.7f) / 0.8f)
-            val pk = 1f - a3
             val nc = drawContext.canvas.nativeCanvas
-            // Aurora
-            run {
-                val n = d.ax.size
-                val arr = FloatArray(n * 2)
-                for (i in 0 until n) {
-                    var f = 0f
-                    if (d.afr[i] && t > ti) f = eo((t - ti) / 0.45f) * (1f - eio((t - ti - 0.6f - d.adl[i]) / 1.1f))
-                    arr[i * 2] = (d.ax[i] + d.adx[i] * f) * u
-                    arr[i * 2 + 1] = (d.ay[i] + d.ady[i] * f) * u
+            nc.save()
+            nc.scale(u, u)
+            val sk = cl(t / 1f)
+            pt.shader = LinearGradient(0f, 432f, 0f, 720f, intArrayOf(0x00505A8C, AColor.argb((41 * sk).toInt(), 120, 110, 150), 0x00282846), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+            nc.drawRect(0f, 432f, 1280f, 720f, pt)
+            pt.shader = null
+            pts.strokeCap = Paint.Cap.SQUARE
+            for (g in 0 until 4) {
+                val tw = 0.7f + 0.3f * sin(t * 2.2f + g * 1.7f)
+                pts.color = AColor.argb((255 * sk * tw * (0.45f + g * 0.17f)).toInt().coerceIn(0, 255), 235, 240, 255)
+                val arr = FloatArray(d.sx.size * 2)
+                var m = 0
+                for (i in g until d.sx.size step 4) {
+                    arr[m * 2] = d.sx[i]
+                    arr[m * 2 + 1] = d.sy[i]
+                    m++
                 }
-                pAur.strokeWidth = 3.4f * u
-                pAur.color = AColor.argb((255 * cl(fadeIn * pk * 0.95f)).toInt(), 255, 255, 255)
-                nc.drawPoints(arr, 0, n * 2, pAur)
+                pts.strokeWidth = 0.9f + g * 0.45f
+                nc.drawPoints(arr, 0, m * 2, pts)
             }
-            // TV
-            if (t > ti + 0.12f) {
-                val n = d.tx.size
-                val arr = FloatArray(n * 2)
-                for (i in 0 until n) {
-                    val s = eio((t - ti - 0.12f - d.tdl[i]) / 1.25f)
-                    val sw = sin(s * PI.toFloat())
-                    arr[i * 2] = (d.tsx[i] + (d.tx[i] - d.tsx[i]) * s + sw * d.tw[i]) * u
-                    arr[i * 2 + 1] = (d.tsy[i] + (d.ty[i] - d.tsy[i]) * s - sw * Math.abs(d.tw[i]) * 0.6f) * u
-                }
-                val s0 = eio((t - ti - 0.5f) / 1.5f)
-                pTv.strokeWidth = 3.4f * u
-                pTv.color = AColor.argb((255 * cl(pk)).toInt(), (255 - (255 - 108) * s0).toInt(), (255 - (255 - 198) * s0).toInt(), 255)
-                nc.drawPoints(arr, 0, n * 2, pTv)
-            }
-            // galáxia distante
-            val gx = 1215f * u
-            val gy = 38f * u
-            if (t < 2.6f) {
-                val ga = cl(t / 0.6f) * (1f - cl((t - 1.7f) / 0.9f))
-                if (ga > 0f) {
-                    drawCircle(
-                        Brush.radialGradient(
-                            listOf(Color(0xFFFFF0D2).al(0.9f * ga), Color(0xFFBEAAFF).al(0.5f * ga), Color(0xFF5A82FF).al(0.22f * ga), Color(0x003C5AFF)),
-                            center = Offset(gx, gy), radius = 70f * u
-                        ),
-                        70f * u, Offset(gx, gy)
-                    )
-                    for (arm in 0 until 2) for (i in 0 until 70) {
-                        val th = i * 0.14f
-                        val rr = (5f + th * 6.5f) * u * 0.6f
-                        val xx = gx + cos(th + arm * PI.toFloat()) * rr
-                        val yy = gy + sin(th + arm * PI.toFloat()) * rr * 0.46f
-                        drawCircle(Color(0xFFD2E1FF).al((0.55f * ga * (1f - i / 90f)).coerceIn(0f, 1f)), 1.1f * u, Offset(xx, yy))
-                    }
-                }
-            }
-            // meteoro
-            if (t > 0.8f && t < ti) {
-                val s = ei((t - 0.8f) / (ti - 0.8f))
-                val sx0 = 1215f
-                val sy0 = 38f
-                val hx = sx0 + (d.ix - sx0) * s
-                val hy = sy0 + (d.iy - sy0) * s
-                val dxn = d.ix - sx0
-                val dyn = d.iy - sy0
-                val nn = hypot(dxn, dyn)
-                val ux = dxn / nn
-                val uy = dyn / nn
-                val k = 0.2f + 0.8f * s
-                val len = (120f + 440f * s) * u
-                val head = Offset(hx * u, hy * u)
-                val tail = Offset(head.x - ux * len, head.y - uy * len)
-                drawLine(
-                    Brush.linearGradient(listOf(Color(0xFF6EB9FF).al(0.7f), Color(0xFF286EFF).al(0.28f), Color(0x00146EFF)), start = head, end = tail),
-                    head, tail, strokeWidth = 34f * k * u, cap = StrokeCap.Round
-                )
-                drawLine(
-                    Brush.linearGradient(listOf(Color.White, Color(0xFFA0D2FF).al(0.75f), Color(0x005096FF)), start = head, end = tail),
-                    head, Offset(head.x - ux * len * 0.9f, head.y - uy * len * 0.9f), strokeWidth = 7f * k * u, cap = StrokeCap.Round
-                )
-                val rnd = java.util.Random((t * 60f).toInt().toLong())
-                for (j in 0 until 8) {
-                    val f = 0.1f + rnd.nextFloat() * 0.7f
-                    drawCircle(
-                        Color(0xFF82C3FF).al(0.7f * rnd.nextFloat()),
-                        (1.5f + rnd.nextFloat() * 2.5f) * u,
-                        Offset(head.x - ux * len * f + (rnd.nextFloat() - 0.5f) * 26f * u, head.y - uy * len * f + (rnd.nextFloat() - 0.5f) * 26f * u)
-                    )
-                }
-                drawCircle(
-                    Brush.radialGradient(listOf(Color.White, Color(0xFF96CDFF).al(0.6f), Color(0x006EB4FF)), center = head, radius = 34f * k * u),
-                    34f * k * u, head
-                )
-            }
-            // impacto
-            if (t >= ti && t < ti + 1.1f) {
-                val kk = t - ti
-                val fl = max(0f, 1f - kk / 0.45f)
-                val c = Offset(d.ix * u, d.iy * u)
-                if (fl > 0f) {
-                    val r = (60f + 260f * eo(kk / 0.45f)) * u
-                    drawCircle(
-                        Brush.radialGradient(listOf(Color.White.al(fl), Color(0xFF82C3FF).al(0.5f * fl), Color(0x005096FF)), center = c, radius = r),
-                        r, c
-                    )
-                }
-                drawCircle(Color(0xFFAAD7FF).al(max(0f, 0.8f - kk / 0.9f)), (20f + 520f * eo(kk / 1.0f)) * u, c, style = Stroke(width = 3f * u))
-            }
-            // logo 3D
-            if (a3 > 0f) {
+            pts.strokeCap = Paint.Cap.ROUND
+            // buraco negro com redemoinho girando para fora
+            val g0 = cl((t - T_BH0) / (T_BH1 - T_BH0))
+            val k = eo(g0) * (1f - eio((t - T_BHX) / 0.6f))
+            if (k > 0.001f) {
+                val r = 85f * k
                 nc.save()
-                nc.scale(u, u)
-                LogoPainter.draw(nc, d.x0, d.cy, d.size, a3, true)
+                nc.translate(BHX, BHY)
+                pt.xfermode = add
+                pt.style = Paint.Style.STROKE
+                pt.strokeWidth = 6f * k
+                for (arm in 0 until 4) {
+                    val path = android.graphics.Path()
+                    for (i in 0..50) {
+                        val f = i / 50f
+                        val rr = r * (1.05f + f * 2.6f)
+                        val th = arm * 1.5708f - t * 1.8f + f * 3.2f
+                        val px = cos(th) * rr
+                        val py = sin(th) * rr * 0.55f
+                        if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    }
+                    pt.color = if (arm % 2 == 1) AColor.argb((71 * k).toInt(), 150, 120, 255) else AColor.argb((71 * k).toInt(), 110, 200, 255)
+                    nc.drawPath(path, pt)
+                }
+                pt.style = Paint.Style.FILL
+                for (i in 0 until 3) {
+                    nc.save()
+                    nc.scale(1f, 0.3f + i * 0.05f)
+                    nc.rotate(-t * (0.9f + i * 0.3f) * 57.3f)
+                    pt.shader = android.graphics.RadialGradient(
+                        0f, 0f, r * (2.6f - i * 0.4f),
+                        intArrayOf(AColor.argb((178 * k).toInt(), 170 - i * 20, 150 - i * 30, 255), AColor.argb((76 * k).toInt(), 120, 80, 255), 0x00280A50),
+                        floatArrayOf(0.34f, 0.6f, 1f), Shader.TileMode.CLAMP
+                    )
+                    nc.drawCircle(0f, 0f, r * 2.6f, pt)
+                    nc.restore()
+                }
+                pt.xfermode = null
+                pt.shader = android.graphics.RadialGradient(0f, 0f, r * 1.35f, intArrayOf(AColor.argb((230 * k).toInt(), 220, 210, 255), 0x008C6EFF), floatArrayOf(0.7f, 1f), Shader.TileMode.CLAMP)
+                nc.drawCircle(0f, 0f, r * 1.35f, pt)
+                pt.shader = null
+                pt.color = AColor.BLACK
+                nc.drawCircle(0f, 0f, r, pt)
                 nc.restore()
             }
+            nc.restore()
+        }
+        // 2) palavra líquida saindo do buraco negro (com brilho por trás)
+        if (glow != null) liquidLayer(true)
+        liquidLayer(false)
+        // 3) palavra sólida, meteoro, fumaça, explosão, poeira lunar, pedras e "TV" lunar
+        Canvas(Modifier.fillMaxSize()) {
+            val d = data ?: return@Canvas
+            val t = tSec
+            val u = size.width / 1280f
+            val nc = drawContext.canvas.nativeCanvas
+            nc.save()
+            nc.scale(u, u)
+            var shx = 0f
+            var shy = 0f
+            if (t > TI && t < TI + 0.4f) {
+                val k = (1f - (t - TI) / 0.4f) * 7f
+                shx = sin(t * 90f) * k
+                shy = cos(t * 77f) * k
+            }
+            val sol = eio((t - T_SOL) / 0.7f)
+            if (sol > 0f) {
+                nc.save()
+                nc.translate(shx, shy)
+                LogoPainter.drawWord(nc, d.x0, d.base, d.size, sol, t)
+                nc.restore()
+            }
+            // fumaça
+            val pw = d.puff.width / 2f
+            fun puff(x: Float, y: Float, r: Float, a: Float, rot: Float, warm: Float) {
+                if (a <= 0f) return
+                nc.save()
+                nc.translate(x, y)
+                nc.rotate(rot * 57.3f)
+                mtx.setScale(r / pw, r / pw)
+                mtx.postTranslate(-r, -r)
+                pb.alpha = (255 * cl(a)).toInt()
+                nc.drawBitmap(d.puff, mtx, pb)
+                if (warm > 0f) {
+                    pb.xfermode = add
+                    pb.alpha = (255 * cl(a * warm * 0.6f)).toInt()
+                    nc.drawBitmap(d.puff, mtx, pb)
+                    pb.xfermode = null
+                }
+                nc.restore()
+            }
+            for (i in 0 until 64) {
+                val te = TS0 + 0.05f + i * 0.024f
+                if (t < te || te > TI) continue
+                val age = t - te
+                val mp = metPos(d, te)
+                puff(mp[0] + d.tj[i] * 60f * mp[2] + age * 14f, mp[1] + d.tj2[i] * 40f * mp[2] - age * 10f, 40f * mp[2] * d.tr[i] + age * 70f, 0.5f * (1f - age / 2.4f), i * 0.7f + age * 0.3f, cl(1f - age / 0.5f))
+            }
+            for (i in d.bvx.indices) {
+                if (t < d.bte[i]) continue
+                val age = t - d.bte[i]
+                val e = (1f - kotlin.math.exp(-age * 1.6f)) / 1.6f
+                puff(d.ix + d.bvx[i] * e, d.iy + d.bvy[i] * e - age * 12f, 26f * d.br[i] + age * 70f, 0.32f * (1f - age / 2.4f), i * 0.9f + age * 0.3f, cl(1f - age / 0.6f))
+            }
+            // meteoro
+            if (t > TS0 && t < TI) {
+                val mp = metPos(d, t)
+                val mx = mp[0]
+                val my = mp[1]
+                val r0 = 150f * mp[2]
+                val dx = d.ix - MSX
+                val dy = d.iy - MSY
+                val nn = kotlin.math.hypot(dx, dy)
+                val ux = dx / nn
+                val uy = dy / nn
+                val tx = mx - ux * r0 * 5.5f
+                val ty = my - uy * r0 * 5.5f
+                // cauda de plasma afunilada
+                val px = -uy
+                val py = ux
+                val tail = android.graphics.Path().apply {
+                    moveTo(mx + px * r0 * 0.8f, my + py * r0 * 0.8f)
+                    quadTo(mx - ux * r0 * 2f + px * r0 * 0.5f, my - uy * r0 * 2f + py * r0 * 0.5f, tx, ty)
+                    quadTo(mx - ux * r0 * 2f - px * r0 * 0.5f, my - uy * r0 * 2f - py * r0 * 0.5f, mx - px * r0 * 0.8f, my - py * r0 * 0.8f)
+                    close()
+                }
+                pt.shader = LinearGradient(mx, my, tx, ty, intArrayOf(0xD9FFBE6E.toInt(), 0x66FF6E28, 0x00782810), floatArrayOf(0f, 0.25f, 1f), Shader.TileMode.CLAMP)
+                pt.xfermode = add
+                pt.alpha = 190
+                nc.drawPath(tail, pt)
+                pt.alpha = 255
+                pt.xfermode = null
+                pt.shader = null
+                // corpo de rocha girando
+                nc.save()
+                nc.translate(mx, my)
+                nc.rotate(t * 0.5f * 57.3f)
+                mtx.setScale(2f * r0 / d.meteor.width, 2f * r0 / d.meteor.width)
+                mtx.postTranslate(-r0, -r0)
+                pb.alpha = 255
+                nc.drawBitmap(d.meteor, mtx, pb)
+                nc.restore()
+                // borda incandescente na frente
+                val fx = mx + ux * r0 * 0.7f
+                val fy = my + uy * r0 * 0.7f
+                pt.shader = android.graphics.RadialGradient(fx, fy, r0 * 0.85f, intArrayOf(0xBFFFF0D7.toInt(), 0x52FF9632, 0x00FF5014), floatArrayOf(0.06f, 0.35f, 1f), Shader.TileMode.CLAMP)
+                pt.xfermode = add
+                nc.drawCircle(fx, fy, r0 * 0.85f, pt)
+                pt.xfermode = null
+                pt.shader = null
+                // fagulhas
+                val rr = java.util.Random((t * 30f).toLong())
+                for (i in 0 until 14) {
+                    val f = rr.nextFloat() * 4f
+                    val sx = mx - ux * r0 * f + (rr.nextFloat() - 0.5f) * r0 * 1.6f
+                    val sy = my - uy * r0 * f + (rr.nextFloat() - 0.5f) * r0 * 1.6f
+                    pt.color = AColor.argb((204 * rr.nextFloat()).toInt(), 255, 150 + rr.nextInt(90), 70)
+                    val s = 1.5f + rr.nextFloat() * 2.5f * mp[2]
+                    nc.drawRect(sx, sy, sx + s, sy + s, pt)
+                }
+            }
+            // clarão e onda de choque
+            if (t >= TI && t < TI + 1.2f) {
+                val k = t - TI
+                val fl = max(0f, 1f - k / 0.5f)
+                if (fl > 0f) {
+                    val r = 60f + 330f * eo(k / 0.5f)
+                    pt.shader = android.graphics.RadialGradient(
+                        d.ix, d.iy, r, intArrayOf(AColor.argb((255 * fl).toInt(), 255, 255, 245), AColor.argb((178 * fl).toInt(), 255, 180, 90), 0x00FF5A14),
+                        floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP
+                    )
+                    pt.xfermode = add
+                    nc.drawCircle(d.ix, d.iy, r, pt)
+                    pt.xfermode = null
+                    pt.shader = null
+                }
+                pt.style = Paint.Style.STROKE
+                pt.strokeWidth = 3f
+                pt.color = AColor.argb((255 * max(0f, 0.6f - k)).toInt(), 255, 210, 170)
+                nc.drawCircle(d.ix, d.iy, 30f + 560f * eo(k / 1.1f), pt)
+                pt.style = Paint.Style.FILL
+            }
+            // poeira lunar: grãos finos, cinza-claros, quase sem gravidade, cintilando
+            if (t > TI) {
+                val k = t - TI
+                for (i in d.dvx.indices) {
+                    if (k > d.dl[i]) continue
+                    val dr = (1f - kotlin.math.exp(-k * 1.4f)) / 1.4f
+                    val x = d.ix + d.dvx[i] * dr
+                    val y = d.iy + d.dvy[i] * dr + 8f * k * k
+                    val a = (1f - k / d.dl[i]) * (0.65f + 0.35f * sin(t * 7f + d.dtw[i]))
+                    val hot = cl(1f - k / 0.4f)
+                    pt.color = AColor.argb((204 * cl(a)).toInt(), (205 + 50 * hot).toInt(), (200 + 10 * hot).toInt(), (190 - 80 * hot).toInt())
+                    nc.drawRect(x, y, x + d.ds[i], y + d.ds[i], pt)
+                }
+                // pedras: explodem, orbitam a palavra e formam o "TV"
+                val fw = d.frags[0].width.toFloat()
+                for (i in d.ftx.indices) {
+                    val fo = 1f - eio((t - T_FORM1) / 0.45f)
+                    if (fo <= 0f) break
+                    val kk = min(k, 0.8f)
+                    val out = (1f - kotlin.math.exp(-kk * 3f)) / 3f
+                    val ex = d.ix + d.fvx[i] * out
+                    val ey = d.iy + d.fvy[i] * out + 40f * kk * kk
+                    val ang = d.foa[i] + (t - T_ORB) * d.fow[i]
+                    val ox = d.ax + cos(ang) * d.forx[i]
+                    val oy = d.cy - 6f + sin(ang) * d.fory[i]
+                    val toOrb = eio((t - T_ORB + 0.6f) / 0.9f)
+                    val toTv = eio((t - T_FORM - d.fdl[i]) / 1.0f)
+                    var x = ex + (ox - ex) * toOrb
+                    var y = ey + (oy - ey) * toOrb
+                    x += (d.ftx[i] - x) * toTv
+                    y += (d.fty[i] - y) * toTv
+                    val behind = toOrb > 0.5f && toTv < 0.5f && sin(ang) < 0f
+                    val sz = d.fs[i] * (1f - 0.2f * toTv) * (if (behind) 0.8f else 1f)
+                    val paint = lighten[(toTv * 5f).toInt().coerceIn(0, 5)]
+                    paint.alpha = (255 * fo * (if (behind) 0.55f else 1f)).toInt()
+                    nc.save()
+                    nc.translate(x, y)
+                    nc.rotate((d.frot[i] + d.fvr[i] * k * 0.4f) * (1f - toTv) * 57.3f)
+                    mtx.setScale(2f * sz / fw, 2f * sz / fw)
+                    mtx.postTranslate(-sz, -sz)
+                    nc.drawBitmap(d.frags[d.fspr[i]], mtx, paint)
+                    nc.restore()
+                    // poeira lunar subindo quando a pedra encaixa
+                    val age = t - (T_FORM + d.fdl[i] + 0.95f)
+                    if (age in 0f..1.4f) {
+                        pt.color = AColor.argb((180 * (1f - age / 1.4f)).toInt(), 215, 212, 205)
+                        for (j in 0 until 3) {
+                            val ddx = ((i * 7 + j * 13) % 27 - 13).toFloat() * eo(age / 1.4f)
+                            val ddy = -((i * 5 + j * 11) % 18).toFloat() * eo(age / 1.4f) + 4f * age
+                            nc.drawRect(d.ftx[i] + ddx, d.fty[i] + ddy, d.ftx[i] + ddx + 1.4f, d.fty[i] + ddy + 1.4f, pt)
+                        }
+                    }
+                }
+                val fill = eio((t - T_FORM1 + 0.2f) / 0.6f)
+                if (fill > 0f) LogoPainter.drawTv(nc, d.xT, d.base, d.size, fill)
+            }
+            nc.restore()
         }
     }
 }

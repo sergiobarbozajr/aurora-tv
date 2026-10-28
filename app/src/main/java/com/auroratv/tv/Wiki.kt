@@ -31,7 +31,7 @@ object Wiki {
             val c = (URL(u).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 10000
-                setRequestProperty("User-Agent", "AuroraTV/1.0 (app de TV pessoal)")
+                setRequestProperty("User-Agent", "AstroLume TV/1.0 (app de TV pessoal)")
             }
             if (c.responseCode in 200..299) {
                 val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })

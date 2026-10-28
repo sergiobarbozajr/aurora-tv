@@ -3,7 +3,7 @@ package com.auroratv.tv
 import android.media.audiofx.Equalizer
 
 /**
- * Editor de som do AuroraTV com o equalizador padrão do Android, que funciona com áudio 5.1 e
+ * Editor de som do AstroLume TV com o equalizador padrão do Android, que funciona com áudio 5.1 e
  * estéreo sem cortar o som. Voz = faixas de 250 Hz a 4 kHz (diálogos); ambiente = graves e agudos.
  * Sem ajuste (tudo em zero) nenhum efeito é ligado: o áudio passa direto.
  */

@@ -149,6 +149,13 @@ class MainActivity : ComponentActivity() {
         Sound.init(this)
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Sound.keyVol = Store.keyVol
+        LogoPainter.face = try {
+            androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_display_black_italic)
+        } catch (e: Throwable) {
+            null
+        }
+        // textura lunar do "TV" do logo, gerada em segundo plano
+        Thread { if (LogoPainter.moon == null) LogoPainter.moon = moonBitmap(256) }.start()
         SomIa.enabled = Store.somIa == 1
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testUrl = intent?.getStringExtra("aurora_test")
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testTheme = intent?.getIntExtra("aurora_theme", -1) ?: -1
@@ -1021,7 +1028,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 } else {
                     updBusy = false
                     updMsg = if (Updater.canInstall(context)) "Pronto. Confirme a instalação na tela do Android."
-                    else "Libere “Instalar apps desconhecidos” para o AuroraTV (abri a tela) e aperte OK de novo."
+                    else "Libere “Instalar apps desconhecidos” para o AstroLume TV (abri a tela) e aperte OK de novo."
                 }
             }
             return
@@ -2173,14 +2180,14 @@ private fun settingBody(
             val dm = context.resources.displayMetrics
             tip + nl + nl + "Máxima (recomendado) usa sempre a maior resolução que o canal oferece e pede à TV o maior modo de tela. As outras opções limitam o teto." + nl + nl +
                 "Saída atual da tela: ${dm.widthPixels} x ${dm.heightPixels}" + nl + nl +
-                "Fora do AuroraTV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado."
+                "Fora do AstroLume TV (Netflix, YouTube etc.) o Android é quem decide. Para travar no máximo: Ajustes do Google TV > Tela e som > Resolução 4K 60 Hz, HDR ligado e “Ajustar à taxa do conteúdo” desligado."
         }
         "Assistente IA de imagem" -> tip + nl + nl + "Automático (recomendado): o vídeo bom (1080p, 4K, HDR) vai direto para a super-resolução por IA do próprio chip da TV, que leva a imagem a 4K. Vídeo fraco (até 720p) recebe antes um reforço na GPU: reconstrução para 1080p, nitidez adaptativa e tom suave. Se a TV começar a perder quadros, o reforço desliga sozinho e o vídeo segue fluido." + nl + nl + ImageAi.summary() + nl + nl + "Manual: Médio, Alto e Ultra aumentam cor, contraste e brilho em vídeo comum (SDR). HDR passa sempre intacto." + nl + nl + "Durante o filme, o selo IA no painel mostra o que está atuando."
         "Clima e cidade" -> tip + nl + nl + "Agora em $city: " + weather
         "Som do aplicativo" -> "OK abre o editor de som:" + nl + "• Som das teclas: 6 estilos ou desligado" + nl + "• Voz: agudo, grave e acústico" + nl + "• Som de ambiente: agudo, grave e acústico" + nl + "• Volume da voz separado do volume do ambiente" + nl + nl + "Vale para canais, filmes e séries. A voz é separada pela faixa de frequência dos diálogos." + nl + nl + "Música de fundo do app: tema espacial original de órgão, piano e violino, com o tique de relógio ao fundo, no clima de Interestelar. Volume próprio, independente da TV. Pausa sozinha quando um vídeo começa e volta quando você sai do player."
         "Sons das teclas" -> tip + nl + nl + "Um toque curto e baixo a cada botão do controle, como o teclado de um celular. Não toca durante os vídeos."
         "Música do aparelho" -> tip + nl + nl + "Escolha uma música sua para tocar no lugar do tema do app. O app procura os arquivos de áudio no pendrive ligado à TV e na memória dela." + nl + nl + "A primeira vez, o Android pede permissão para o app ver as músicas." + nl + nl + "O volume segue a opção Som do aplicativo."
-        "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AuroraTV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
+        "Grave (bass) para soundbar" -> tip + nl + nl + "Reforça os graves de tudo o que toca no AstroLume TV: canais, filmes, séries e a música do app. Médio, Alto e Máximo aumentam o grave em passos." + nl + nl +
             "Fora do app (YouTube, Netflix), o app tenta reforçar o som geral da TV; se a TV não permitir, use o ajuste de graves da própria soundbar." + nl +
             "Se a soundbar recebe o áudio em Dolby/DTS direto (passthrough), o reforço não se aplica: ajuste na soundbar."
         "Tema do app" -> tip + nl + nl + "Muda o fundo do app na hora:" + nl +
@@ -2209,7 +2216,7 @@ private fun settingBody(
                 (if (customKeys.isEmpty()) "Agora: padrão do Android." else "Agora: " + customKeys.entries.joinToString(" · ") { android.view.KeyEvent.keyCodeToString(it.key) + " = " + it.value }) +
                 nl + nl + "OK para começar."
         "Bloquear anúncios (DNS)" ->
-            "O AuroraTV não tem anúncios. Para reduzir anúncios nos outros apps e sites, use um DNS que bloqueia anúncios:" + nl + nl +
+            "O AstroLume TV não tem anúncios. Para reduzir anúncios nos outros apps e sites, use um DNS que bloqueia anúncios:" + nl + nl +
                 "1. OK abre as configurações de rede." + nl +
                 "2. Procure “DNS privado” (Rede > Avançado) e escolha nome do provedor." + nl +
                 "3. Digite: dns.adguard-dns.com" + nl + nl +
@@ -2222,7 +2229,7 @@ private fun settingBody(
             "Versão instalada: " + Updater.currentVersion(context) + nl + nl + updMsg + nl + nl +
                 "O app confere a última versão publicada no GitHub, baixa e abre o instalador do Android."
         else ->
-            "AuroraTV · versão " + Updater.currentVersion(context) + nl + "Criado em 2026" + nl +
+            "AstroLume TV · versão " + Updater.currentVersion(context) + nl + "Criado em 2026" + nl +
                 "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}" + nl + nl +
                 "Feito por Sérgio Barboza Júnior."
     }
@@ -2301,7 +2308,7 @@ private fun ExitDialog(sel: Int) {
             Modifier.width(u(520)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Sair do AuroraTV?", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
+            Text("Sair do AstroLume TV?", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(u(6)))
             Text("Você volta para a tela inicial do Google TV.", color = CDim, fontSize = ts(15))
             Spacer(Modifier.height(u(22)))

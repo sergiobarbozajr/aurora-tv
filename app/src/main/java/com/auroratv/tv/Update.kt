@@ -47,7 +47,7 @@ object Updater {
                     connectTimeout = 15000
                     readTimeout = 15000
                     setRequestProperty("Accept", "application/vnd.github+json")
-                    setRequestProperty("User-Agent", "AuroraTV")
+                    setRequestProperty("User-Agent", "AstroLume TV")
                 }
                 val code = conn.responseCode
                 if (code == 404) {
@@ -79,14 +79,14 @@ object Updater {
         thread {
             var ok = false
             val dir = File(c.cacheDir, "updates")
-            val file = File(dir, "AuroraTV.apk")
+            val file = File(dir, "AstroLume TV.apk")
             try {
                 dir.mkdirs()
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 20000
                     readTimeout = 30000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "AuroraTV")
+                    setRequestProperty("User-Agent", "AstroLume TV")
                 }
                 val len = conn.contentLength.toLong()
                 var got = 0L
