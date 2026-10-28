@@ -134,11 +134,12 @@ object Img {
             val html = c.inputStream.bufferedReader().use { r ->
                 val sb = StringBuilder()
                 val buf = CharArray(8192)
-                while (sb.length < 300_000) {
+                // páginas grandes (Play Store) trazem a imagem depois de muitos scripts: lê até achar
+                while (sb.length < 2_500_000) {
                     val n = r.read(buf)
                     if (n < 0) break
                     sb.append(buf, 0, n)
-                    if (sb.contains("</head>")) break
+                    if (sb.contains("og:image") && sb.indexOf(">", sb.lastIndexOf("og:image")) > 0) break
                 }
                 sb.toString()
             }
@@ -149,6 +150,7 @@ object Img {
         } catch (e: Throwable) {
             ""
         }
+        android.util.Log.i("AuroraImg", "og " + pageUrl.take(90) + " -> " + (if (r.isEmpty()) "sem imagem" else "ok"))
         synchronized(ogCache) { ogCache[pageUrl] = r }
         return r
     }
