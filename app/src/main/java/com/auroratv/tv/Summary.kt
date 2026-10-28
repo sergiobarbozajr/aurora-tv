@@ -48,8 +48,10 @@ object Summary {
         if (art != null && art.value.length > 1500) body = art.groupValues[1]
         val out = ArrayList<String>()
         for (m in Regex("<p[^>]*>(.*?)</p>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).findAll(body)) {
-            val t = clean(m.groupValues[1])
+            // tira créditos de foto e legendas ("(Foto: Reprodução/Caixa)")
+            val t = clean(m.groupValues[1]).replace(Regex("\\((?:Foto|Imagem|Crédito|Créditos)[^)]*\\)", RegexOption.IGNORE_CASE), "").trim()
             if (t.length < 60) continue
+            if (Regex("^(?:Foto|Imagem|Crédito|Legenda)\\s*:", RegexOption.IGNORE_CASE).containsMatchIn(t) || t.contains("Reprodução/")) continue
             val low = t.lowercase()
             if (low.startsWith("leia também") || low.startsWith("veja também") || low.contains("assine") && low.length < 160 || low.contains("cookies") || low.contains("todos os direitos")) continue
             if (out.none { it == t }) out.add(t)
