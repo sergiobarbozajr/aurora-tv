@@ -75,7 +75,7 @@ jobs:
             adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
             adb logcat -d | grep -E "ANR in com.auroratv|FATAL EXCEPTION|Process: com.auroratv" > travas.txt || true
             adb shell pidof com.auroratv.tv > vivo.txt || echo "morto" > vivo.txt
-            adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; adb shell dumpsys gfxinfo com.astrolume.celular reset > /dev/null; adb shell input swipe 500 1500 500 500 300; sleep 1; adb shell input swipe 500 1500 500 500 300; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "Total frames|Janky|50th|95th" | sed "s/^/celular /" >> gfx.txt || true; adb logcat -d | grep -E "Choreographer.*Skipped" | tail -5 | sed "s/^/celular /" >> gfx.txt || true
+            adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; adb shell input tap 339 1785; sleep 4; adb shell dumpsys gfxinfo com.astrolume.celular reset > /dev/null; adb shell input swipe 500 1500 500 500 300; sleep 1; adb shell input swipe 500 1500 500 500 300; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "Total frames|Janky|50th|95th" | sed "s/^/celular /" >> gfx.txt || true; adb logcat -d | grep -E "Choreographer.*Skipped" | tail -5 | sed "s/^/celular /" >> gfx.txt || true
             adb logcat -d | grep -E "ANR in com.astrolume|FATAL EXCEPTION" >> travas.txt || true
             adb shell pidof com.astrolume.celular > /dev/null || echo "morto celular" >> vivo.txt
       - name: Resultado do teste
@@ -99,7 +99,11 @@ jobs:
           echo "mediana=${P50}ms p95=${P95}ms"
           if [ -n "$P50" ] && [ "$P50" -gt 34 ]; then echo "::error title=Fluidez::mediana ${P50}ms (limite 34ms)"; exit 1; fi
           if [ -n "$P95" ] && [ "$P95" -gt 150 ]; then echo "::error title=Fluidez::p95 ${P95}ms (limite 150ms)"; exit 1; fi
-          echo "::notice title=Fluidez aprovada::mediana ${P50}ms, p95 ${P95}ms, sem travamentos"
+          # celular: so conta se houve quadros desenhados na rolagem
+          CF=$(grep -m1 "celular Total frames" gfx.txt | grep -oE "[0-9]+$")
+          C50=$(grep -m1 "celular 50th percentile" gfx.txt | grep -oE "[0-9]+ms" | head -1 | tr -d ms)
+          if [ -n "$CF" ] && [ "$CF" -gt 5 ] && [ -n "$C50" ] && [ "$C50" -gt 34 ]; then echo "::error title=Fluidez celular::mediana ${C50}ms (limite 34ms)"; exit 1; fi
+          echo "::notice title=Fluidez aprovada::mediana ${P50}ms, p95 ${P95}ms,  sem travamentos · celular: ${CF:-0} quadros, mediana ${C50:-?}ms"
       - name: Resumo do erro
         if: always()
         run: |
