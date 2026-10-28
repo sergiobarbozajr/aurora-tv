@@ -1351,10 +1351,7 @@ fun IntroAnim(onDone: () -> Unit) {
     val pts = remember { Paint().apply { strokeCap = Paint.Cap.ROUND } }
     val pb = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
     val add = remember { android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD) }
-    val goo = remember { gooEffect() }
-    val glow = remember {
-        if (android.os.Build.VERSION.SDK_INT >= 31) android.graphics.RenderEffect.createBlurEffect(10f, 10f, Shader.TileMode.DECAL).asComposeRenderEffect() else null
-    }
+    // sem desfoque de tela cheia (pesado na GPU da TV): o "líquido" vem de gotas sobrepostas e de um halo translúcido
     val lighten = remember {
         List(6) { i ->
             val b = 1f + 1.9f * i / 5f
@@ -1372,9 +1369,7 @@ fun IntroAnim(onDone: () -> Unit) {
     fun liquidLayer(isGlow: Boolean) {
         Canvas(Modifier.fillMaxSize().graphicsLayer {
             val t = tSec
-            alpha = (1f - eio((t - T_SOL) / 0.7f)) * (if (isGlow) 0.35f else 1f)
-            renderEffect = if (isGlow) glow else goo
-            if (isGlow) compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+            alpha = (1f - eio((t - T_SOL) / 0.7f)) * (if (isGlow) 0.22f else 1f)
         }) {
             val d = data ?: return@Canvas
             val t = tSec
@@ -1412,7 +1407,7 @@ fun IntroAnim(onDone: () -> Unit) {
                 }
                 if (m == 0) continue
                 pts.color = LQ_COLORS[bin]
-                pts.strokeWidth = 2 * 2.9f * (szSum / m) * (1f + 0.12f * sin(t * 4f + bin))
+                pts.strokeWidth = 2 * 2.9f * (szSum / m) * (1f + 0.12f * sin(t * 4f + bin)) * (if (isGlow) 2.6f else 1.15f)
                 nc.drawPoints(arr, 0, m * 2, pts)
             }
             nc.restore()
@@ -1494,7 +1489,7 @@ fun IntroAnim(onDone: () -> Unit) {
             nc.restore()
         }
         // 2) palavra líquida saindo do buraco negro (com brilho por trás)
-        if (glow != null) liquidLayer(true)
+        liquidLayer(true)
         liquidLayer(false)
         // 3) palavra sólida, meteoro, fumaça, explosão, poeira lunar, pedras e "TV" lunar
         Canvas(Modifier.fillMaxSize()) {
