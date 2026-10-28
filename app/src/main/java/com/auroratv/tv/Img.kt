@@ -117,6 +117,54 @@ object Img {
         }
     }
 
+    private val ogCache = HashMap<String, String>()
+
+    /** Imagem de destaque que a própria página publica (og:image): capa da matéria, ícone oficial na Play Store. */
+    fun og(pageUrl: String): String {
+        if (!pageUrl.startsWith("http")) return ""
+        synchronized(ogCache) { ogCache[pageUrl]?.let { return it } }
+        val r = try {
+            val c = (URL(pageUrl).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; TV) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
+            }
+            val html = c.inputStream.bufferedReader().use { r ->
+                val sb = StringBuilder()
+                val buf = CharArray(8192)
+                while (sb.length < 300_000) {
+                    val n = r.read(buf)
+                    if (n < 0) break
+                    sb.append(buf, 0, n)
+                    if (sb.contains("</head>")) break
+                }
+                sb.toString()
+            }
+            val m = Regex("<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                ?: Regex("<meta[^>]+content=[\"']([^\"']+)[\"'][^>]*(?:property|name)=[\"'](?:og:image|twitter:image)[\"']", RegexOption.IGNORE_CASE).find(html)
+            val u = m?.groupValues?.get(1)?.replace("&amp;", "&") ?: ""
+            if (u.isEmpty()) "" else URL(URL(pageUrl), u).toString()
+        } catch (e: Throwable) {
+            ""
+        }
+        synchronized(ogCache) { ogCache[pageUrl] = r }
+        return r
+    }
+
+    /** App não instalado: ícone oficial publicado na Play Store, para o cartão ter a identidade do serviço. */
+    suspend fun storeIcon(c: Card): ImageBitmap? {
+        val key = "app:" + c.name
+        cache.get(key)?.let { return it }
+        val pkg = c.pkgs.firstOrNull() ?: return null
+        val u = withContext(Dispatchers.IO) { og("https://play.google.com/store/apps/details?id=$pkg&hl=pt_BR") }
+        if (u.isEmpty()) return null
+        val b = web(u) ?: return null
+        cache.put(key, b)
+        cache.put("$key:icon", b)
+        return b
+    }
+
     fun isIcon(c: Card): Boolean = cache.get("app:" + c.name + ":icon") != null
 }
 
@@ -124,12 +172,18 @@ object Img {
 fun rememberCardImage(c: Card): ImageBitmap? {
     val context = LocalContext.current
     val wiki = c.img.isEmpty() && (c.kind == "vod" || c.kind == "series")
-    val key = if (c.kind == "app") "app:" + c.name else if (wiki) "wiki:" + c.name else c.img
+    val key = if (c.kind == "app") "app:" + c.name else if (wiki) "wiki:" + c.name
+    else if (c.kind == "news" && c.img.isEmpty() && c.extra.startsWith("http")) "news:" + c.extra else c.img
     var b by remember(key) { mutableStateOf(if (key.isEmpty()) null else Img.peek(key)) }
     LaunchedEffect(key) {
         if (b == null && key.isNotEmpty()) {
             b = when {
-                c.kind == "app" -> Img.app(context, c).first
+                c.kind == "app" -> Img.app(context, c).first ?: Img.storeIcon(c)
+                c.kind == "news" && c.img.isEmpty() -> {
+                    // matéria sem foto no feed: usa a imagem que a própria página da notícia publica
+                    val u = withContext(Dispatchers.IO) { Img.og(c.extra) }
+                    if (u.isNotEmpty()) Img.web(u) else null
+                }
                 wiki -> {
                     // sem capa na lista: procura pelo nome na Wikipédia
                     val u = withContext(Dispatchers.IO) { Wiki.cover(c.name, c.kind == "series") }

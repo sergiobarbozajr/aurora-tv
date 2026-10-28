@@ -1849,7 +1849,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
-    val art = if (c.kind == "app" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
+    val art = if (c.kind == "app" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series" || (c.kind == "news" && c.extra.startsWith("http"))) rememberCardImage(c) else null
     val glossy = c.kind == "app"
     // cartões de stream: efeito 3D (sombra, relevo e brilho); com foco crescem um pouco
     var m = Modifier.width(w).height(u(122))
@@ -2893,7 +2893,12 @@ private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap
                 .border(BorderStroke(u(2), Brush.verticalGradient(listOf(Color(0xAAFFFFFF), bc.copy(alpha = 0.6f)))), bs)
         ) {
             if (banner != null) {
-                androidx.compose.foundation.Image(banner, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                if (Img.isIcon(c)) {
+                    // só o ícone oficial (app não instalado): centralizado sobre a cor do serviço
+                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bc, Color(0xFF0A0A0F)))), contentAlignment = Alignment.Center) {
+                        androidx.compose.foundation.Image(banner, c.name, Modifier.fillMaxHeight(0.62f).clip(RoundedCornerShape(u(22))), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                    }
+                } else androidx.compose.foundation.Image(banner, c.name, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(bc, Color(0xFF0A0A0F)))), contentAlignment = Alignment.Center) {
                     Text(c.name, color = Color.White, fontSize = ts(40), fontWeight = FontWeight.ExtraBold)

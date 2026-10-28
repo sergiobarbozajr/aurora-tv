@@ -76,7 +76,7 @@ object News {
             // foto: dentro do link ou logo antes dele
             val from = maxOf(0, m.range.first - 1500)
             val img = imgRe2.find(inner)?.groupValues?.get(1) ?: imgRe2.findAll(html.substring(from, m.range.first)).lastOrNull()?.groupValues?.get(1) ?: ""
-            out.add(mkCard(title, "Investidor10", "news", title.hashCode() and 0x7fffffff, null, "", emptyList(), title).copy(img = img))
+            out.add(mkCard(title, "Investidor10", "news", title.hashCode() and 0x7fffffff, null, url, emptyList(), title).copy(img = img))
         }
         return out
     }
@@ -110,6 +110,7 @@ object News {
     private val titleRe = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL))
     private val descRe = Regex("<description[^>]*>(.*?)</description>", setOf(RegexOption.DOT_MATCHES_ALL))
     private val mediaRe = Regex("<(?:media:content|media:thumbnail|enclosure)[^>]*?url=\"([^\"]+)\"", setOf(RegexOption.IGNORE_CASE))
+    private val linkRe = Regex("<link[^>]*>\\s*(?:<!\\[CDATA\\[)?\\s*(https?://[^<\\s\\]]+)", setOf(RegexOption.IGNORE_CASE))
     private val imgRe = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", setOf(RegexOption.IGNORE_CASE))
 
     /** Foto da matéria: mídia do feed, ou a primeira imagem do texto. */
@@ -128,7 +129,8 @@ object News {
             val title = titleRe.find(block)?.groupValues?.get(1)?.let { clean(it) } ?: continue
             if (title.length < 8) continue
             val desc = descRe.find(block)?.groupValues?.get(1)?.let { clean(it) } ?: ""
-            out.add(mkCard(title, source, "news", title.hashCode() and 0x7fffffff, null, "", emptyList(), if (desc.isBlank()) title else desc).copy(img = photo(block)))
+            val link = linkRe.find(block)?.groupValues?.get(1)?.trim() ?: ""
+            out.add(mkCard(title, source, "news", title.hashCode() and 0x7fffffff, null, link, emptyList(), if (desc.isBlank()) title else desc).copy(img = photo(block)))
         }
         return out
     }
