@@ -118,7 +118,7 @@ private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, RE
 private val LocalK = compositionLocalOf { 1.5f }
 
 /** Fonte do app: Inter (licença livre OFL). Texto comum em peso leve (semilight); títulos em seminegrito e negrito. */
-private val AuroraFont = androidx.compose.ui.text.font.FontFamily(
+internal val AuroraFont = androidx.compose.ui.text.font.FontFamily(
     androidx.compose.ui.text.font.Font(R.font.inter_light, FontWeight.Light),
     androidx.compose.ui.text.font.Font(R.font.inter_light, FontWeight.Normal),
     androidx.compose.ui.text.font.Font(R.font.inter_medium, FontWeight.Medium),
@@ -134,6 +134,9 @@ private fun u(n: Number): Dp = (n.toFloat() * LocalK.current).dp
 private fun ts(n: Number): TextUnit = (max(n.toFloat(), 13.5f) * LocalK.current).sp
 
 var videoPlayingFlag = false
+
+/** true = tela da TV (controle remoto); false = tela do celular (toque). */
+var isTvUi = true
 
 /** Só no APK de teste (debug): endereço tocado sozinho para o teste automático de áudio e retomada. */
 var testUrl: String? = null
@@ -194,7 +197,16 @@ class MainActivity : ComponentActivity() {
             onSpeech = null
             cb?.invoke(txt)
         }
-        setContent { AuroraApp(catalog, this) }
+        // TV (controle remoto) ou celular (toque): o mesmo app escolhe a tela certa
+        val forced = if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) intent?.getStringExtra("aurora_ui") else null
+        isTvUi = when (forced) {
+            "tv" -> true
+            "mobile" -> false
+            else -> packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+                (getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager).currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        }
+        requestedOrientation = if (isTvUi) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (isTvUi) setContent { AuroraApp(catalog, this) } else setContent { MobileApp(catalog, this) }
     }
 
     /** O Android só mostra o nome do Wi-Fi para apps com permissão de localização. */
@@ -269,12 +281,12 @@ fun AuroraApp(catalog: Catalog, activity: MainActivity) {
     }
 }
 
-private class FreeData(
+internal class FreeData(
     val antenna: List<Card>, val internet: List<Card>, val intl: List<Card>,
     val films: List<Card>, val anime: List<Card>, val news: List<Card>, val docs: List<Card>
 )
 
-private fun buildFree(catalog: Catalog, extra: List<Item>): FreeData {
+internal fun buildFree(catalog: Catalog, extra: List<Item>): FreeData {
     val ant = ArrayList<Card>()
     val net = ArrayList<Card>()
     val intl = ArrayList<Card>()

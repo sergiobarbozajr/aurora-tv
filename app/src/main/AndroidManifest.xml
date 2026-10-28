@@ -31,6 +31,21 @@
         <package android:name="com.google.android.youtube.tv" />
         <package android:name="tv.pluto.android" />
         <package android:name="com.plexapp.android" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.youtube.tvmusic" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.spotify.tv.android" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.amazon.music.tv" />
+        <package android:name="com.amazon.mp3" />
+        <package android:name="deezer.android.tv" />
+        <package android:name="deezer.android.app" />
+        <package android:name="com.aspiro.tidal" />
+        <package android:name="com.apple.android.music" />
+        <package android:name="tunein.player" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.disney.disneyplus" />
+        <package android:name="com.amazon.avod.thirdpartyclient" />
     </queries>
     <uses-feature
         android:name="android.software.leanback"
@@ -61,7 +76,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:screenOrientation="landscape">
+            android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

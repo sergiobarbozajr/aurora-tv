@@ -60,7 +60,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop com.auroratv.tv
             adb logcat -c
-            adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+            adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
             sleep 20
             adb shell dumpsys audio | grep -iE "AudioPlaybackConfiguration|state:started|usage=USAGE_MEDIA" | head -8 > audio.txt || true
             sleep 42

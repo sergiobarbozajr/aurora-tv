@@ -47,12 +47,18 @@ jobs:
             adb shell wm size 1920x1080 || true
             adb shell wm density 240 || true
             adb logcat -c; (adb logcat -v time > cap/logcat.txt &)
-            adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0; sleep 3; adb exec-out screencap -p > cap/abertura1.png; sleep 1.5; adb exec-out screencap -p > cap/abertura2.png; sleep 2; adb exec-out screencap -p > cap/abertura3.png; sleep 2; adb exec-out screencap -p > cap/abertura4.png; sleep 2.5; adb exec-out screencap -p > cap/abertura5.png; sleep 2; adb exec-out screencap -p > cap/abertura6.png
+            adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0 --es aurora_ui tv; sleep 3; adb exec-out screencap -p > cap/abertura1.png; sleep 1.5; adb exec-out screencap -p > cap/abertura2.png; sleep 2; adb exec-out screencap -p > cap/abertura3.png; sleep 2; adb exec-out screencap -p > cap/abertura4.png; sleep 2.5; adb exec-out screencap -p > cap/abertura5.png; sleep 2; adb exec-out screencap -p > cap/abertura6.png
             true
             sleep 6; adb exec-out screencap -p > cap/inicio.png; adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_DOWN; for k in 1 2 3 4 5 6 7 8 9 10 11; do adb shell input keyevent KEYCODE_DPAD_DOWN; done; sleep 2; adb exec-out screencap -p > cap/musica.png
             adb logcat -c
+            adb shell am force-stop com.auroratv.tv; adb shell wm size 1080x2340; adb shell wm density 420; sleep 2
+            adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui mobile; sleep 25; adb exec-out screencap -p > cap/cel_inicio.png
+            adb shell input tap 324 2150; sleep 4; adb exec-out screencap -p > cap/cel_aovivo.png
+            adb shell input tap 756 2150; sleep 4; adb exec-out screencap -p > cap/cel_series.png
+            adb shell input tap 972 2150; sleep 3; adb exec-out screencap -p > cap/cel_mais.png
+            adb shell am force-stop com.auroratv.tv; adb shell wm size 1920x1080; adb shell wm density 240; sleep 2
             adb shell am force-stop com.auroratv.tv
-            adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0 --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+            adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0 --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
             sleep 22
             adb shell input keyevent KEYCODE_DPAD_RIGHT
             sleep 1
