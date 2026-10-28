@@ -752,6 +752,11 @@ object LogoPainter {
     @Volatile
     var moon: Bitmap? = null
 
+    @Synchronized
+    fun ensureMoon() {
+        if (moon == null) moon = moonBitmap(192)
+    }
+
     fun paint(size: Float): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = face ?: Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
         textSize = size
@@ -1138,8 +1143,19 @@ private fun puffBitmap(): Bitmap {
     return Bitmap.createBitmap(px, S, S, Bitmap.Config.ARGB_8888)
 }
 
+/** Texturas pesadas da abertura: geradas em paralelo enquanto o céu e o buraco negro já aparecem. */
+class IntroArt(val meteor: Bitmap, val frags: List<Bitmap>, val puff: Bitmap)
+
+private fun buildIntroArt(): IntroArt {
+    val rock = rockBitmap(160)
+    val meteor = meteorBitmap(rock, 192)
+    val frags = fragBitmaps(rock)
+    val puff = puffBitmap()
+    LogoPainter.ensureMoon()
+    return IntroArt(meteor, frags, puff)
+}
+
 class IntroData(
-    val rock: Bitmap, val meteor: Bitmap, val frags: List<Bitmap>, val puff: Bitmap,
     val size: Float, val x0: Float, val base: Float, val xT: Float, val wA: Float, val ix: Float, val iy: Float, val ax: Float, val cy: Float,
     // estrelas
     val sx: FloatArray, val sy: FloatArray, val sa: FloatArray, val sz: FloatArray,
@@ -1172,11 +1188,6 @@ private const val MSX = 1240f
 private const val MSY = -60f
 
 private fun buildIntroData(): IntroData {
-    val rock = rockBitmap(256)
-    if (LogoPainter.moon == null) LogoPainter.moon = moonBitmap(256)
-    val meteor = meteorBitmap(rock, 256)
-    val frags = fragBitmaps(rock)
-    val puff = puffBitmap()
     val size = 118f
     val cy = 350f
     val p = LogoPainter.paint(size)
@@ -1268,12 +1279,12 @@ private fun buildIntroData(): IntroData {
         bvy[i] = sin(a) * sp * 0.7f - 30f
     }
     return IntroData(
-        rock, meteor, frags, puff, size, x0, base, xT, wA, x0 + wA - 30f, cy + 4f, x0 + wA / 2f, cy,
+        size, x0, base, xT, wA, x0 + wA - 30f, cy + 4f, x0 + wA / 2f, cy,
         sx, sy, sa, sz,
         FloatArray(lq.size) { lq[it][0] }, FloatArray(lq.size) { lq[it][1] }, FloatArray(lq.size) { lq[it][2] },
         FloatArray(lq.size) { lq[it][3] }, FloatArray(lq.size) { lq[it][4] }, IntArray(lq.size) { lq[it][5].toInt() },
         ftx, fty, fvx, fvy, FloatArray(fn) { r.nextFloat() * 6.28f }, FloatArray(fn) { (r.nextFloat() - 0.5f) * 9f }, FloatArray(fn) { 9f + r.nextFloat() * 6f },
-        IntArray(fn) { r.nextInt(frags.size) }, FloatArray(fn) { r.nextFloat() * 0.5f }, FloatArray(fn) { r.nextFloat() * 6.28f },
+        IntArray(fn) { r.nextInt(14) }, FloatArray(fn) { r.nextFloat() * 0.5f }, FloatArray(fn) { r.nextFloat() * 6.28f },
         FloatArray(fn) { 0.9f + r.nextFloat() * 0.7f }, FloatArray(fn) { wA * 0.56f + r.nextFloat() * 70f }, FloatArray(fn) { size * 0.78f + r.nextFloat() * 40f },
         dvx, dvy, FloatArray(dn) { 0.6f + r.nextFloat() * 1.6f }, FloatArray(dn) { 1.8f + r.nextFloat() * 2.8f }, FloatArray(dn) { r.nextFloat() * 6.28f },
         FloatArray(64) { r.nextFloat() - 0.5f }, FloatArray(64) { r.nextFloat() - 0.5f }, FloatArray(64) { 0.6f + r.nextFloat() * 0.6f },
@@ -1311,16 +1322,24 @@ private fun gooEffect(): androidx.compose.ui.graphics.RenderEffect? {
 @Composable
 fun IntroAnim(onDone: () -> Unit) {
     var data by remember { mutableStateOf<IntroData?>(null) }
+    var art by remember { mutableStateOf<IntroArt?>(null) }
     var tSec by remember { mutableStateOf(0f) }
     LaunchedEffect(Unit) {
         data = withContext(Dispatchers.Default) { buildIntroData() }
     }
+    LaunchedEffect(Unit) {
+        art = withContext(Dispatchers.Default) { buildIntroArt() }
+    }
     LaunchedEffect(data) {
         if (data == null) return@LaunchedEffect
         var start = -1L
+        var last = 0L
         while (true) {
             val n = androidx.compose.runtime.withFrameNanos { it }
             if (start < 0) start = n
+            // texturas do meteoro ainda sendo geradas (TV lenta): o buraco negro e a palavra seguem vivos, o tempo espera
+            if (art == null && tSec > TS0 - 0.3f && last > 0L) start += n - last
+            last = n
             tSec = (n - start) / 1_000_000_000f
             if (tSec > T_END) {
                 onDone()
@@ -1500,20 +1519,21 @@ fun IntroAnim(onDone: () -> Unit) {
                 nc.restore()
             }
             // fumaça
-            val pw = d.puff.width / 2f
+            val a = art
+            val pw = (a?.puff?.width ?: 96) / 2f
             fun puff(x: Float, y: Float, r: Float, a: Float, rot: Float, warm: Float) {
-                if (a <= 0f) return
+                if (a <= 0f || art == null) return
                 nc.save()
                 nc.translate(x, y)
                 nc.rotate(rot * 57.3f)
                 mtx.setScale(r / pw, r / pw)
                 mtx.postTranslate(-r, -r)
                 pb.alpha = (255 * cl(a)).toInt()
-                nc.drawBitmap(d.puff, mtx, pb)
+                nc.drawBitmap(art!!.puff, mtx, pb)
                 if (warm > 0f) {
                     pb.xfermode = add
                     pb.alpha = (255 * cl(a * warm * 0.6f)).toInt()
-                    nc.drawBitmap(d.puff, mtx, pb)
+                    nc.drawBitmap(art!!.puff, mtx, pb)
                     pb.xfermode = null
                 }
                 nc.restore()
@@ -1532,7 +1552,7 @@ fun IntroAnim(onDone: () -> Unit) {
                 puff(d.ix + d.bvx[i] * e, d.iy + d.bvy[i] * e - age * 12f, 26f * d.br[i] + age * 70f, 0.32f * (1f - age / 2.4f), i * 0.9f + age * 0.3f, cl(1f - age / 0.6f))
             }
             // meteoro
-            if (t > TS0 && t < TI) {
+            if (a != null && t > TS0 && t < TI) {
                 val mp = metPos(d, t)
                 val mx = mp[0]
                 val my = mp[1]
@@ -1564,10 +1584,10 @@ fun IntroAnim(onDone: () -> Unit) {
                 nc.save()
                 nc.translate(mx, my)
                 nc.rotate(t * 0.5f * 57.3f)
-                mtx.setScale(2f * r0 / d.meteor.width, 2f * r0 / d.meteor.width)
+                mtx.setScale(2f * r0 / a.meteor.width, 2f * r0 / a.meteor.width)
                 mtx.postTranslate(-r0, -r0)
                 pb.alpha = 255
-                nc.drawBitmap(d.meteor, mtx, pb)
+                nc.drawBitmap(a.meteor, mtx, pb)
                 nc.restore()
                 // borda incandescente na frente
                 val fx = mx + ux * r0 * 0.7f
@@ -1610,7 +1630,7 @@ fun IntroAnim(onDone: () -> Unit) {
                 pt.style = Paint.Style.FILL
             }
             // poeira lunar: grãos finos, cinza-claros, quase sem gravidade, cintilando
-            if (t > TI) {
+            if (a != null && t > TI) {
                 val k = t - TI
                 for (i in d.dvx.indices) {
                     if (k > d.dl[i]) continue
@@ -1623,7 +1643,7 @@ fun IntroAnim(onDone: () -> Unit) {
                     nc.drawRect(x, y, x + d.ds[i], y + d.ds[i], pt)
                 }
                 // pedras: explodem, orbitam a palavra e formam o "TV"
-                val fw = d.frags[0].width.toFloat()
+                val fw = art.frags[0].width.toFloat()
                 for (i in d.ftx.indices) {
                     val fo = 1f - eio((t - T_FORM1) / 0.45f)
                     if (fo <= 0f) break
@@ -1649,7 +1669,7 @@ fun IntroAnim(onDone: () -> Unit) {
                     nc.rotate((d.frot[i] + d.fvr[i] * k * 0.4f) * (1f - toTv) * 57.3f)
                     mtx.setScale(2f * sz / fw, 2f * sz / fw)
                     mtx.postTranslate(-sz, -sz)
-                    nc.drawBitmap(d.frags[d.fspr[i]], mtx, paint)
+                    nc.drawBitmap(a.frags[d.fspr[i]], mtx, paint)
                     nc.restore()
                     // poeira lunar subindo quando a pedra encaixa
                     val age = t - (T_FORM + d.fdl[i] + 0.95f)

@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
             null
         }
         // textura lunar do "TV" do logo, gerada em segundo plano
-        Thread { if (LogoPainter.moon == null) LogoPainter.moon = moonBitmap(256) }.start()
+        Thread { LogoPainter.ensureMoon() }.start()
         SomIa.enabled = Store.somIa == 1
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testUrl = intent?.getStringExtra("aurora_test")
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) testTheme = intent?.getIntExtra("aurora_theme", -1) ?: -1

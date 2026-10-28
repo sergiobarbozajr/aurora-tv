@@ -47,6 +47,7 @@ jobs:
             adb shell wm size 1920x1080 || true
             adb shell wm density 240 || true
             adb shell am force-stop com.auroratv.tv; adb shell am start -n com.auroratv.tv/.MainActivity --ei aurora_theme 0; sleep 3; adb exec-out screencap -p > cap/abertura1.png; sleep 1.5; adb exec-out screencap -p > cap/abertura2.png; sleep 2; adb exec-out screencap -p > cap/abertura3.png; sleep 2; adb exec-out screencap -p > cap/abertura4.png; sleep 2.5; adb exec-out screencap -p > cap/abertura5.png; sleep 2; adb exec-out screencap -p > cap/abertura6.png
+            adb logcat -d | grep -E 'AndroidRuntime|FATAL|auroratv|Choreographer' | tail -60 > cap/log-abertura.txt || true
             sleep 6; adb exec-out screencap -p > cap/inicio.png; adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_DOWN; for k in 1 2 3 4 5 6 7 8 9 10 11; do adb shell input keyevent KEYCODE_DPAD_DOWN; done; sleep 2; adb exec-out screencap -p > cap/musica.png
             adb logcat -c
             adb shell am force-stop com.auroratv.tv
