@@ -75,7 +75,7 @@ jobs:
             adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
             adb logcat -d | grep -E "ANR in com.auroratv|FATAL EXCEPTION|Process: com.auroratv" > travas.txt || true
             adb shell pidof com.auroratv.tv > vivo.txt || echo "morto" > vivo.txt
-            adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; adb shell input swipe 500 1500 500 500 300; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "50th|95th" | sed 's/^/celular /' >> gfx.txt || true
+            adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; adb shell dumpsys gfxinfo com.astrolume.celular reset > /dev/null; adb shell input swipe 500 1500 500 500 300; sleep 1; adb shell input swipe 500 1500 500 500 300; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "50th|95th" | sed 's/^/celular /' >> gfx.txt || true
             adb logcat -d | grep -E "ANR in com.astrolume|FATAL EXCEPTION" >> travas.txt || true
             adb shell pidof com.astrolume.celular > /dev/null || echo "morto celular" >> vivo.txt
       - name: Resultado do teste
