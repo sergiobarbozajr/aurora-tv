@@ -128,7 +128,8 @@ object Img {
                 connectTimeout = 8000
                 readTimeout = 8000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; TV) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+                setRequestProperty("Accept-Language", "pt-BR,pt;q=0.9")
             }
             val html = c.inputStream.bufferedReader().use { r ->
                 val sb = StringBuilder()
@@ -156,8 +157,20 @@ object Img {
     suspend fun storeIcon(c: Card): ImageBitmap? {
         val key = "app:" + c.name
         cache.get(key)?.let { return it }
-        val pkg = c.pkgs.firstOrNull() ?: return null
-        val u = withContext(Dispatchers.IO) { og("https://play.google.com/store/apps/details?id=$pkg&hl=pt_BR") }
+        // página do app na Play Store (versão de TV ou de celular, a que tiver ícone publicado)
+        val extra = mapOf(
+            "netflix" to "com.netflix.mediaclient", "prime" to "com.amazon.avod.thirdpartyclient", "disney" to "com.disney.disneyplus",
+            "max" to "com.wbd.stream", "apple tv" to "com.apple.atve.androidtv.appletv", "globoplay" to "com.globo.globotv",
+            "youtube" to "com.google.android.youtube", "pluto" to "tv.pluto.android", "plex" to "com.plexapp.android", "mercado play" to "com.mercadolibre"
+        )
+        val n = c.name.lowercase()
+        val pkgs = (c.pkgs + extra.filterKeys { n.startsWith(it) }.values).distinct()
+        if (pkgs.isEmpty()) return null
+        var u = ""
+        for (pkg in pkgs) {
+            u = withContext(Dispatchers.IO) { og("https://play.google.com/store/apps/details?id=$pkg&hl=pt_BR") }
+            if (u.isNotEmpty()) break
+        }
         if (u.isEmpty()) return null
         val b = web(u) ?: return null
         cache.put(key, b)

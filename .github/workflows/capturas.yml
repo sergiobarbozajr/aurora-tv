@@ -45,9 +45,9 @@ jobs:
             mkdir -p cap
             adb shell am force-stop com.auroratv.tv; adb shell wm size 1080x2340; adb shell wm density 420; sleep 2
             adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 25; adb exec-out screencap -p > cap/cel_inicio.png
-            adb shell input tap 324 2150; sleep 4; adb exec-out screencap -p > cap/cel_aovivo.png
-            adb shell input tap 756 2150; sleep 4; adb exec-out screencap -p > cap/cel_series.png
-            adb shell input tap 972 2150; sleep 3; adb exec-out screencap -p > cap/cel_mais.png
+            adb shell input tap 339 1785; sleep 4; adb exec-out screencap -p > cap/cel_aovivo.png
+            adb shell input tap 744 1785; sleep 4; adb exec-out screencap -p > cap/cel_series.png
+            adb shell input tap 945 1785; sleep 3; adb exec-out screencap -p > cap/cel_mais.png
             adb shell am force-stop com.auroratv.tv; adb shell wm size 1920x1080; adb shell wm density 240; sleep 2
             adb install -r app/build/outputs/apk/tv/debug/app-tv-debug.apk
             adb shell wm size 1920x1080 || true
