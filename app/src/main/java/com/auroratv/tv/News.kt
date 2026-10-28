@@ -76,7 +76,8 @@ object News {
             // foto: dentro do link ou logo antes dele
             val from = maxOf(0, m.range.first - 1500)
             val img = imgRe2.find(inner)?.groupValues?.get(1) ?: imgRe2.findAll(html.substring(from, m.range.first)).lastOrNull()?.groupValues?.get(1) ?: ""
-            out.add(mkCard(title, "Investidor10", "news", title.hashCode() and 0x7fffffff, null, url, emptyList(), title).copy(img = img))
+            // a foto vem da própria matéria (og:image), que é a imagem certa da notícia
+            out.add(mkCard(title, "Investidor10", "news", title.hashCode() and 0x7fffffff, null, url, emptyList(), title))
         }
         return out
     }

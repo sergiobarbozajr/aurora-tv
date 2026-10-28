@@ -1545,6 +1545,17 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         play(c, emptyList())
         delay(8000)
         L("RETOMADA: voltou em ${pb.player.currentPosition} ms (esperado perto de $saved) resumedFrom=${pb.resumedFrom}")
+        // resumo de notícia (IA do app) numa matéria real
+        withContext(Dispatchers.IO) {
+            try {
+                val rss = java.net.URL("https://g1.globo.com/rss/g1/").readText()
+                val link = Regex("<item>.*?<link>\\s*(https?://[^<\\s]+)", RegexOption.DOT_MATCHES_ALL).find(rss)?.groupValues?.get(1) ?: ""
+                val r = Summary.summarize(link, "", "")
+                L("RESUMO ok=${r.ok} pontos=${r.points.size} imagem=${r.image.isNotEmpty()} conclusao=${r.conclusion.take(140)} | 1o=${r.points.firstOrNull()?.take(120)}")
+            } catch (e: Throwable) {
+                L("RESUMO erro ${e.javaClass.simpleName}")
+            }
+        }
         L("FIM DO TESTE")
     }
 
@@ -2705,16 +2716,53 @@ private fun KeymapBox(step: Int, last: String) {
 
 @Composable
 private fun ReaderBox(c: Card?) {
+    // resumo feito no próprio aparelho: pontos principais e conclusão
+    var sum by remember(c) { mutableStateOf<Summary.Result?>(null) }
+    LaunchedEffect(c) {
+        if (c != null) sum = withContext(Dispatchers.IO) { Summary.summarize(c.extra, c.name, c.desc) }
+    }
+    val art = if (c != null) rememberCardImage(c) else null
     Box(Modifier.fillMaxSize().background(Color(0xE602030A)), contentAlignment = Alignment.Center) {
         val shape = RoundedCornerShape(u(18))
-        Column(Modifier.width(u(860)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(36))) {
-            Text((c?.label ?: "").uppercase(), color = CAccent, fontSize = ts(15), fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(u(10)))
-            Text(c?.name ?: "", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(u(16)))
-            Text(c?.desc ?: "", color = CLight, fontSize = ts(20), lineHeight = ts(30), maxLines = 9, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(u(18)))
-            Text("Voltar ou OK fecha", color = CDim, fontSize = ts(14))
+        Row(Modifier.width(u(1080)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(32))) {
+            if (art != null) {
+                androidx.compose.foundation.Image(
+                    art, c?.name, Modifier.width(u(300)).height(u(200)).clip(RoundedCornerShape(u(14))),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(Modifier.width(u(26)))
+            }
+            Column(Modifier.weight(1f)) {
+                Text((c?.label ?: "").uppercase(), color = CAccent, fontSize = ts(15), fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(u(8)))
+                Text(c?.name ?: "", color = CInk, fontSize = ts(26), fontWeight = FontWeight.ExtraBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(u(14)))
+                val s = sum
+                when {
+                    s == null -> Text("Resumindo a notícia…", color = CDim, fontSize = ts(17))
+                    !s.ok || s.points.isEmpty() -> Text(c?.desc ?: "", color = CLight, fontSize = ts(18), lineHeight = ts(27), maxLines = 9, overflow = TextOverflow.Ellipsis)
+                    else -> {
+                        Text("RESUMO FEITO PELA IA DO APP", color = CDim, fontSize = ts(12), fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(u(6)))
+                        for (pnt in s.points) {
+                            Row(Modifier.padding(bottom = u(6))) {
+                                Text("•  ", color = CAccent, fontSize = ts(17), fontWeight = FontWeight.Bold)
+                                Text(pnt, color = CLight, fontSize = ts(17), lineHeight = ts(24), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (s.conclusion.isNotEmpty()) {
+                            Spacer(Modifier.height(u(8)))
+                            Column(Modifier.fillMaxWidth().background(Color(0x1F6CC6FF), RoundedCornerShape(u(10))).padding(u(12))) {
+                                Text("CONCLUSÃO", color = CAccent, fontSize = ts(12), fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(u(4)))
+                                Text(s.conclusion, color = CInk, fontSize = ts(17), lineHeight = ts(24), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(u(14)))
+                Text("Fonte: " + (c?.label ?: "") + "   ·   Voltar ou OK fecha", color = CDim, fontSize = ts(14))
+            }
         }
     }
 }

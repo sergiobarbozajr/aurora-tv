@@ -63,7 +63,7 @@ jobs:
             adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
             sleep 20
             adb shell dumpsys audio | grep -iE "AudioPlaybackConfiguration|state:started|usage=USAGE_MEDIA" | head -8 > audio.txt || true
-            sleep 30
+            sleep 42
             adb logcat -d -s AuroraTest:I AuroraAI:I > test.txt || true
             adb shell input keyevent KEYCODE_BACK
             sleep 3
@@ -76,7 +76,7 @@ jobs:
       - name: Resultado do teste
         if: always()
         run: |
-          T=$(grep -E "t=(2|12|20) |SEEK|SAIU|RETOMADA|FIM|plano|fluidez" test.txt | sed 's/.*AuroraTest: //' | cut -c1-230 | tr '\n' '|' | cut -c1-3000)
+          T=$(grep -E "t=(2|12) |SEEK|RETOMADA|RESUMO|FIM|fluidez" test.txt | sed 's/.*AuroraTest: //' | cut -c1-230 | tr '\n' '|' | cut -c1-3000)
           echo "::warning title=Teste::$T"
           A=$(cat audio.txt | cut -c1-200 | tr '\n' '|' | cut -c1-1500)
           echo "::warning title=Audio::$A"
