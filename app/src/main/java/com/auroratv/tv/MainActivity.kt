@@ -255,8 +255,8 @@ fun AuroraApp(catalog: Catalog, activity: MainActivity) {
             LocalK provides k,
             androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(
                 fontFamily = AuroraFont,
-                // sombra suave em todo texto: destaca do fundo animado e das imagens
-                shadow = androidx.compose.ui.graphics.Shadow(Color(0xB3000000), Offset(0f, 2f), 6f)
+                // contorno de sombra sem desfoque: mesma leitura sobre o fundo, custo quase zero na GPU
+                shadow = androidx.compose.ui.graphics.Shadow(Color(0x99000000), Offset(0f, 1.5f), 0f)
             )
         ) { AppBody(catalog, activity) }
     }
@@ -697,7 +697,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Novelas" -> withLogin(iptv("Novelas"))
             "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs))
             "Esporte" -> withLogin(iptv("Esporte"))
-            "Jogos" -> Games.cards()
+            "Música" -> musicRows(
+                openRows.filter { it.title.endsWith("Música") }.flatMap { it.cards },
+                iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
+            )
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
                 RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") +
@@ -901,7 +904,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
         } catch (e: Exception) {
         }
-        val uri = if (c.pkgs.isNotEmpty()) "market://details?id=${c.pkgs[0]}" else "market://search?q=${Uri.encode(c.name)}"
+        val uri = if (c.pkgs.isNotEmpty() && c.extra != "busca") "market://details?id=${c.pkgs[0]}" else "market://search?q=${Uri.encode(c.name)}&c=apps"
         try {
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(uri))
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -925,18 +928,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
-            "gamemap" -> try {
-                context.startActivity(Intent(context, GameMapActivity::class.java))
-            } catch (e: Exception) {
-            }
-            "game" -> {
-                if (c.extra == "heavy") showToast("Jogo pesado: o primeiro carregamento pode demorar. Voltar 2x sai.")
-                try {
-                    context.startActivity(Intent(context, GameActivity::class.java).putExtra("url", c.url))
-                } catch (e: Exception) {
-                    showToast("Não consegui abrir o jogo.")
-                }
-            }
             "antenna" -> openAntenna(c)
             "stream", "vod" -> play(c, list)
             "series" -> {
@@ -1551,6 +1542,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun act(a: String) {
+        navAt = android.os.SystemClock.uptimeMillis()
         if (zone != Z.PLAYER && !(zone == Z.SOUND && sndFromPlayer)) Sound.click()
         when (zone) {
             Z.INTRO -> finishIntro()
@@ -1850,7 +1842,7 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
     val shape = RoundedCornerShape(u(12))
     val gk = LocalK.current * LocalDensity.current.density
     val w = if (c.kind == "login") u(430) else u(206)
-    val art = if (c.kind == "app" || c.kind == "game" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
+    val art = if (c.kind == "app" || c.img.isNotEmpty() || c.kind == "vod" || c.kind == "series") rememberCardImage(c) else null
     val glossy = c.kind == "app"
     // cartões de stream: efeito 3D (sombra, relevo e brilho); com foco crescem um pouco
     var m = Modifier.width(w).height(u(122))
@@ -1956,20 +1948,22 @@ private fun CardView(c: Card, focused: Boolean, fav: Boolean, hl: Int) {
 private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
     val shape = RoundedCornerShape(u(18))
     Box(Modifier.fillMaxWidth().height(u(254)).clip(shape)) {
-        val art = if (c != null && (c.img.isNotEmpty() || c.kind == "app" || c.kind == "game")) rememberCardImage(c) else null
+        val art = if (c != null && (c.img.isNotEmpty() || c.kind == "app")) rememberCardImage(c) else null
         if (c != null && c.kind == "app") {
             StreamHero(c, art)
         } else if (scene) {
             FamilyScene(Modifier.fillMaxSize())
         } else if (art != null) {
             // cena do conteúdo: capa ampliada e desfocada ao fundo, com zoom lento, e a capa nítida à direita
-            val inf = rememberInfiniteTransition(label = "kb")
-            val kb by inf.animateFloat(1.0f, 1.14f, infiniteRepeatable(tween(14000), RepeatMode.Reverse), label = "kbz")
             androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "hero") { img ->
                 Box(Modifier.fillMaxSize()) {
                     androidx.compose.foundation.Image(
                         Img.soft(img), null,
-                        Modifier.fillMaxSize().graphicsLayer { scaleX = kb; scaleY = kb },
+                        Modifier.fillMaxSize().graphicsLayer {
+                            val kb = Clock.wave(28f, 1.0f, 1.14f)
+                            scaleX = kb
+                            scaleY = kb
+                        },
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
                     Box(Modifier.fillMaxSize().background(Color(0x66000000)))
@@ -2019,7 +2013,6 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
                     c.kind == "antenna" -> "OK abre a TV na entrada de antena"
-                    c.kind == "game" || c.kind == "gamemap" -> c.desc.take(150)
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
@@ -2729,15 +2722,12 @@ private fun Coin(name: String, modifier: Modifier, size: Dp) {
         n.startsWith("bitcoin") -> Triple("₿", Color(0xFFFFD08A), Color(0xFFE07A10))
         else -> Triple("R$", Color(0xFFFFF0B0), Color(0xFF2F8F4E))
     }
-    val inf = rememberInfiniteTransition(label = "coin")
-    val rot by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(4200, easing = androidx.compose.animation.core.LinearEasing)), label = "rot")
-    val bob by inf.animateFloat(-1f, 1f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label = "bob")
     val d = LocalDensity.current.density
     Box(
         modifier.size(size).graphicsLayer {
-            rotationY = rot
+            rotationY = Clock.loop(4.2f) * 360f
             cameraDistance = 14f * d
-            translationY = bob * 4f * d
+            translationY = Clock.wave(3.6f, -1f, 1f) * 4f * d
         }.clip(androidx.compose.foundation.shape.CircleShape)
             .background(Brush.radialGradient(listOf(a, b, b.copy(alpha = 1f)), radius = size.value * d * 0.75f))
             .border(BorderStroke(size * 0.06f, Brush.linearGradient(listOf(Color(0xFFFFFFFF), b, Color(0xFF1A1A1A)))), androidx.compose.foundation.shape.CircleShape),
@@ -2872,10 +2862,6 @@ private fun brandColor(name: String): Color {
 @Composable
 private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap?) {
     val bc = brandColor(c.name)
-    val inf = rememberInfiniteTransition(label = "sh")
-    val kb by inf.animateFloat(1.0f, 1.06f, infiniteRepeatable(tween(9000), RepeatMode.Reverse), label = "kb")
-    val sweep by inf.animateFloat(-0.4f, 1.4f, infiniteRepeatable(tween(4200, easing = androidx.compose.animation.core.LinearEasing)), label = "sw")
-    val glow by inf.animateFloat(0.35f, 0.75f, infiniteRepeatable(tween(2600), RepeatMode.Reverse), label = "gl")
     Box(Modifier.fillMaxSize()) {
         if (banner != null) {
             androidx.compose.foundation.Image(
@@ -2888,9 +2874,14 @@ private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap
         Box(
             Modifier.align(Alignment.CenterEnd).padding(end = u(34)).width(u(380)).height(u(214))
                 .drawBehind {
+                    val glow = Clock.wave(5.2f, 0.35f, 0.75f)
                     drawRoundRect(bc.copy(alpha = glow * 0.55f), Offset(-14f * density, -14f * density), Size(size.width + 28f * density, size.height + 28f * density), CornerRadius(26f * density))
                 }
-                .graphicsLayer { scaleX = kb; scaleY = kb }
+                .graphicsLayer {
+                    val kb = Clock.wave(18f, 1.0f, 1.06f)
+                    scaleX = kb
+                    scaleY = kb
+                }
                 .clip(bs)
                 .border(BorderStroke(u(2), Brush.verticalGradient(listOf(Color(0xAAFFFFFF), bc.copy(alpha = 0.6f)))), bs)
         ) {
@@ -2904,7 +2895,7 @@ private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap
             // reflexo de luz atravessando o banner
             Box(
                 Modifier.fillMaxSize().drawBehind {
-                    val x = sweep * size.width
+                    val x = (-0.4f + 1.8f * Clock.loop(4.2f)) * size.width
                     drawRect(
                         Brush.linearGradient(
                             listOf(Color.Transparent, Color(0x55FFFFFF), Color.Transparent),

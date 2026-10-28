@@ -53,15 +53,38 @@ import kotlin.math.min
 import kotlin.math.sin
 import android.graphics.Color as AColor
 
+/** Última tecla apertada (ms). Enquanto o usuário navega, o fundo fica parado e a GPU fica toda para os menus. */
+@Volatile
+var navAt = 0L
+
 /** Relógio de quadros: cada leitura de .value dentro de um desenho redesenha a cada frame. */
+/** Relógio único das animações (fundo, destaques, moedas): 30 quadros/s e parado enquanto você navega. */
+object Clock {
+    val tick = mutableStateOf(0L)
+
+    /** Segundos, para usar dentro de graphicsLayer/drawBehind (só redesenha, não recompõe). */
+    fun sec(): Float = (tick.value / 1_000_000L).toFloat() / 1000f
+
+    /** Vai e volta suave entre a e b no período dado (s). */
+    fun wave(period: Float, a: Float, b: Float): Float = a + (b - a) * (0.5f - 0.5f * cos(sec() * 2f * PI.toFloat() / period))
+
+    /** 0..1 repetindo no período dado (s). */
+    fun loop(period: Float): Float = (sec() % period) / period
+}
+
 @Composable
 fun frameClock(active: Boolean): State<Long> {
-    val s = remember { mutableStateOf(0L) }
+    val s = Clock.tick
     LaunchedEffect(active) {
         if (active) {
             // 30 quadros por segundo bastam para o fundo; sobra processamento para a navegação
             var last = 0L
             while (true) {
+                // navegando: fundo congelado até 0,9 s depois da última tecla
+                if (android.os.SystemClock.uptimeMillis() - navAt < 900L) {
+                    kotlinx.coroutines.delay(120)
+                    continue
+                }
                 androidx.compose.runtime.withFrameNanos {
                     if (it - last >= 32_000_000L) {
                         last = it
@@ -279,8 +302,10 @@ private fun DrawScope.dustLayers(t: Float, d: StarData, col: Color, wind: Float,
             0 -> drawCircle(col.al(a * 0.8f), (0.5f + d.qr[i] * 0.35f) * u, c)
             1 -> drawCircle(col.al(a), (1.0f + d.qr[i] * 0.7f) * u, c)
             else -> {
-                val r = (4f + d.qr[i] * 3.5f) * u
-                drawCircle(Brush.radialGradient(listOf(col.al(a * 0.55f), col.al(0f)), center = c, radius = r), r, c)
+                // perto: grão maior e macio (dois círculos, sem degradê, bem mais leve)
+                val r = (2.6f + d.qr[i] * 2.2f) * u
+                drawCircle(col.al(a * 0.18f), r, c)
+                drawCircle(col.al(a * 0.35f), r * 0.5f, c)
             }
         }
     }
@@ -342,14 +367,6 @@ private fun DrawScope.planet(t: Float) {
             val y = cy - r + k * bh
             val col = bands[(k * 7 + k / 3) % bands.size]
             drawRect(col, Offset(cx - r, y), Size(2f * r, bh + 1.5f))
-            // turbulência na borda de cada faixa, andando com a rotação
-            val ph = t * (0.05f + (k % 5) * 0.012f) * (if (k % 2 == 0) 1f else -0.7f)
-            var x = cx - r
-            while (x < cx + r) {
-                val wv = sin(x / r * 9f + ph * 6f + k) * bh * 0.35f
-                drawLine(bands[(k * 7 + 3) % bands.size].al(0.55f), Offset(x, y + bh + wv), Offset(x + r * 0.06f, y + bh - wv), strokeWidth = bh * 0.35f)
-                x += r * 0.06f
-            }
         }
         val sxp = cx - r + (((t * 0.012f) % 1f) * 2.6f - 0.3f) * r
         withTransform({ scale(1.9f, 1f, Offset(sxp, cy + r * 0.28f)) }) {
@@ -577,12 +594,8 @@ private fun waterEffect(theme: Int, t: Float, w: Float, h: Float): androidx.comp
 /** Fundo: nebulosa em movimento lento, estrelas piscando, estrelas pulsando e poeira estelar. */
 @Composable
 fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
-    val inf = rememberInfiniteTransition(label = "bg")
-    val sc by inf.animateFloat(
-        initialValue = 1.0f, targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(tween(60000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "sc"
-    )
+    // zoom lento do espaço e água/calor: seguem o relógio do fundo (param junto quando você navega)
+    val slow = remember(tick) { androidx.compose.runtime.derivedStateOf { tick.value / 66_666_666L } }
     val d = remember { StarData() }
     Box(Modifier.fillMaxSize().background(Color(0xFF02030A))) {
         Image(
@@ -604,6 +617,8 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
             Modifier.fillMaxSize().graphicsLayer {
                 // só o espaço profundo flutua; nos outros o horizonte e o sol ficam fixos
                 if (theme == 0) {
+                    val ts = slow.value * 0.066666f
+                    val sc = 1.03f - 0.03f * cos(ts * 2f * PI.toFloat() / 120f)
                     scaleX = sc
                     scaleY = sc
                     translationX = -(sc - 1f) * size.width * 0.2f
@@ -612,7 +627,8 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
                 if (theme == 1) alpha = 0.35f
                 // água e calor de verdade (Android 13+)
                 if (android.os.Build.VERSION.SDK_INT >= 33 && (theme == 3 || theme == 8 || theme == 9)) {
-                    renderEffect = waterEffect(theme, tick.value / 1_000_000_000f, size.width, size.height)
+                    // 15 quadros por segundo bastam para a água; metade do trabalho da GPU
+                    renderEffect = waterEffect(theme, slow.value * 0.066666f, size.width, size.height)
                 }
             },
             contentScale = ContentScale.Crop,
@@ -800,7 +816,7 @@ fun LogoSmall(heightPx: Float) {
 // ---------------------------------------------------------------- ícones
 
 private val ICONS = mapOf(
-    "game" to "M7 8h10a5 5 0 0 1 5 5v1.5a3 3 0 0 1-5.4 1.8L15 14.5H9l-1.6 1.8A3 3 0 0 1 2 14.5V13a5 5 0 0 1 5-5zM7.5 10.2v3.6M5.7 12h3.6M15.6 11.2h.01M17.8 13.2h.01",
+    "music" to "M9 18V5l12-2v13M3 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M15 16a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
     "home" to "M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5",
     "search" to "M4 11a7 7 0 1 0 14 0a7 7 0 1 0 -14 0M20 20l-3.5-3.5",
     "star" to "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.9z",

@@ -35,7 +35,7 @@ val SECTIONS = listOf(
     Section("Esporte", "ball", "rows"),
     Section("Notícias", "news", "rows"),
     Section("TV ao vivo", "tv", "live"),
-    Section("Jogos", "game", "rows"),
+    Section("Música", "music", "rows"),
     Section("Configurações", "gear", "settings"),
     Section("Sair do app", "power", "exit")
 )
@@ -86,6 +86,39 @@ fun streamRows(): List<RowData> {
             )
         )
     )
+}
+
+// ---------- Música (apps instalados na TV + canais abertos de música) ----------
+
+fun musicRows(openMusic: List<Card>, iptvMusic: List<RowData>): List<RowData> {
+    // extra "busca": se o app não estiver instalado, abre a busca da Play Store pelo nome
+    fun app(n: String, label: String, i: Int, vararg p: String) =
+        mkCard(n, label, "app", i, null, "busca", p.toList(), "Abre o app $n instalado na TV")
+    val out = ArrayList<RowData>()
+    out.add(
+        RowData(
+            "Apps de música", listOf(
+                app("YouTube Music", "Grátis ou Premium", 1, "com.google.android.youtube.tvmusic", "com.google.android.apps.youtube.music"),
+                app("Spotify", "Grátis ou Premium", 4, "com.spotify.tv.android", "com.spotify.music"),
+                app("Amazon Music", "Assinatura", 6, "com.amazon.music.tv", "com.amazon.mp3"),
+                app("Deezer", "Grátis ou Premium", 5, "deezer.android.tv", "deezer.android.app"),
+                app("TIDAL", "Assinatura", 0, "com.aspiro.tidal"),
+                app("Apple Music", "Assinatura", 2, "com.apple.android.music")
+            )
+        )
+    )
+    out.add(
+        RowData(
+            "Videoclipes", listOf(
+                app("YouTube", "Clipes e shows", 1, "com.google.android.youtube.tv"),
+                app("Pluto TV", "Canais de música", 5, "tv.pluto.android")
+            )
+        )
+    )
+    if (openMusic.isNotEmpty()) out.add(RowData("Canais de música abertos", openMusic))
+    out.addAll(iptvMusic)
+    out.add(RowData("Rádios e podcasts", listOf(app("TuneIn Radio", "Grátis", 3, "tunein.player"))))
+    return out
 }
 
 // ---------- Opções de configuração ----------
@@ -221,16 +254,6 @@ object Store {
         if (v == null) sp.edit().remove("adj_" + key).apply()
         else sp.edit().putString("adj_" + key, v.joinToString(",")).apply()
     }
-
-    /** Mapeamento dos jogos: "botão:tecla;botão:tecla". */
-    var gameMap: String
-        get() = sp.getString("game_map", "") ?: ""
-        set(v) = sp.edit().putString("game_map", v).apply()
-
-    /** Jogos: o controle remoto começa mandando teclas (perfil "Controle da TV"), não o cursor. */
-    var gameRemoteKeys: Boolean
-        get() = sp.getBoolean("game_remote_keys", false)
-        set(v) = sp.edit().putBoolean("game_remote_keys", v).apply()
 
     var keymap: String
         get() = sp.getString("keymap", "") ?: ""

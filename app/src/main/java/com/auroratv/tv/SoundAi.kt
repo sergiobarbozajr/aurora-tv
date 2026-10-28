@@ -49,6 +49,7 @@ class SomIaProcessor : BaseAudioProcessor() {
     private var gVoice = 1f
     private var env = 0f
     private var ys = FloatArray(2)
+    private var pcm = ShortArray(4096)
 
     private fun coef(fc: Float): Float = exp(-2.0 * PI * fc / rate).toFloat()
 
@@ -83,6 +84,10 @@ class SomIaProcessor : BaseAudioProcessor() {
         val inb = inputBuffer.order(ByteOrder.nativeOrder())
         val start = inb.position()
         val frames = n / (2 * ch)
+        // lê o bloco inteiro de uma vez (bem mais leve que ler amostra por amostra)
+        val total = frames * ch
+        if (pcm.size < total) pcm = ShortArray(total)
+        inb.asShortBuffer().get(pcm, 0, total)
 
         // 1) análise da cena no bloco
         var eT = 0f
@@ -90,7 +95,8 @@ class SomIaProcessor : BaseAudioProcessor() {
         var eV = 0f
         for (f in 0 until frames) {
             var m = 0f
-            for (c in 0 until ch) m += inb.getShort(start + (f * ch + c) * 2) / 32768f
+            val o = f * ch
+            for (c in 0 until ch) m += pcm[o + c] / 32768f
             m /= ch
             mLow = a150 * mLow + (1 - a150) * m
             mV300 = a300 * mV300 + (1 - a300) * m
@@ -148,7 +154,7 @@ class SomIaProcessor : BaseAudioProcessor() {
         for (f in 0 until frames) {
             var peak = 0f
             for (c in 0 until ch) {
-                val x = inb.getShort(start + (f * ch + c) * 2) / 32768f
+                val x = pcm[f * ch + c] / 32768f
                 lp150[c] = a150 * lp150[c] + (1 - a150) * x
                 lp300[c] = a300 * lp300[c] + (1 - a300) * x
                 lp3k[c] = a3k * lp3k[c] + (1 - a3k) * x

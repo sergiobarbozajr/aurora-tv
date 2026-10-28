@@ -36,6 +36,8 @@ object Iptv {
             has(g, "document", "discovery", "nat geo", "national geographic", "history", "animal planet") -> "Documentários"
             has(g, "esport", "sport", "futebol", "nba", "ufc", "premiere", "espn", "combate") ||
                 has(n, "sportv", "espn", "premiere", "combate", "dazn") -> "Esporte"
+            has(g, "music", "musica", "clipe", "karaoke", "show musical") ||
+                has(n, "mtv", "vh1", "trace ", "music", "musica", "canal bis", "bis hd") -> "Música"
             has(g, "notic", "news", "jornal") ||
                 has(n, "cnn", "globonews", "band news", "jovem pan news", "record news") -> "Notícias"
             else -> base
