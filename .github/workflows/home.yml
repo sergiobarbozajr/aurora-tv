@@ -42,12 +42,12 @@ jobs:
           target: google_apis
           disable-animations: false
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 4096
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -no-audio -memory 3072
           script: |
             set +e
             mkdir -p cap
             echo "inicio $(adb get-state)" >> cap/passos.txt
-            adb shell wm size 1920x1080; adb shell wm density 320; sleep 2
+            adb shell wm size 1280x720; adb shell wm density 213; sleep 2
             adb install -r home/build/outputs/apk/debug/home-debug.apk >> cap/passos.txt 2>&1
             adb shell cmd package set-home-activity com.astrolume.home/.HomeActivity || true
             adb logcat -c
