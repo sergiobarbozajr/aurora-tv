@@ -974,6 +974,27 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
 
+    /** Abre um endereço de rede: vídeo direto vai para o player, lista .m3u vira uma fileira. */
+    fun abrirRede(t: String) {
+        val u = t.trim()
+        if (u.isBlank()) {
+            showToast("Endereço vazio.")
+            return
+        }
+        showToast("Abrindo…")
+        Rede.abrir(u) { r ->
+            when {
+                r.direct -> play(mkCard("Transmissão de rede", "endereço digitado", "stream", 4, u), emptyList())
+                r.erro.isNotEmpty() -> showToast(r.erro)
+                else -> {
+                    netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
+                    showToast("${r.items.size} itens. Veja em TV online.")
+                    bump++
+                }
+            }
+        }
+    }
+
     fun activateCard(c: Card, list: List<Card>) {
         when (c.kind) {
             "login" -> {
@@ -1289,27 +1310,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             okh.run = r
             handler.postDelayed(r, 380)
-        }
-    }
-
-    /** Abre um endereço de rede: vídeo direto vai para o player, lista .m3u vira uma fileira. */
-    fun abrirRede(t: String) {
-        val u = t.trim()
-        if (u.isBlank()) {
-            showToast("Endereço vazio.")
-            return
-        }
-        showToast("Abrindo…")
-        Rede.abrir(u) { r ->
-            when {
-                r.direct -> play(mkCard("Transmissão de rede", "endereço digitado", "stream", 4, u), emptyList())
-                r.erro.isNotEmpty() -> showToast(r.erro)
-                else -> {
-                    netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
-                    showToast("${r.items.size} itens. Veja em TV online.")
-                    bump++
-                }
-            }
         }
     }
 
