@@ -106,12 +106,13 @@ jobs:
           if [ -n "$P95" ] && [ "$P95" -gt 150 ]; then echo "::error title=Fluidez::p95 ${P95}ms (limite 150ms)"; exit 1; fi
           RP=$(grep -m1 "Total frames" repouso.txt | grep -oE "[0-9]+$")
           echo "quadros com a tela parada (8s) = $RP"
-          if [ -n "$RP" ] && [ "$RP" -gt 20 ]; then echo "::error title=Tela parada::o app desenhou $RP quadros sem ninguem mexer (limite 20): alguma animacao ficou rodando sozinha"; exit 1; fi
+          if [ -z "$RP" ]; then echo "::error title=Tela parada::nao deu para medir a tela parada"; exit 1; fi
+          if [ "$RP" -gt 20 ]; then echo "::error title=Tela parada::o app desenhou $RP quadros sem ninguem mexer (limite 20): alguma animacao ficou rodando sozinha"; exit 1; fi
           # celular: so conta se houve quadros desenhados na rolagem
           CF=$(grep -m1 "celular Total frames" gfx.txt | grep -oE "[0-9]+$")
           C50=$(grep -m1 "celular 50th percentile" gfx.txt | grep -oE "[0-9]+ms" | head -1 | tr -d ms)
           if [ -n "$CF" ] && [ "$CF" -gt 5 ] && [ -n "$C50" ] && [ "$C50" -gt 34 ]; then echo "::error title=Fluidez celular::mediana ${C50}ms (limite 34ms)"; exit 1; fi
-          echo "::notice title=Fluidez aprovada::mediana ${P50}ms, p95 ${P95}ms,  sem travamentos · celular: ${CF:-0} quadros, mediana ${C50:-?}ms"
+          echo "::notice title=Fluidez aprovada::mediana ${P50}ms, p95 ${P95}ms, tela parada ${RP:-nao medido} quadros, sem travamentos · celular: ${CF:-0} quadros, mediana ${C50:-?}ms"
       - name: Resumo do erro
         if: always()
         run: |
