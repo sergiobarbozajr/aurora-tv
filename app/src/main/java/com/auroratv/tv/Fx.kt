@@ -57,6 +57,9 @@ import android.graphics.Color as AColor
 @Volatile
 var navAt = 0L
 
+/** Quanto tempo sem mexer no controle até o fundo entrar em stand-by e voltar a se mexer. */
+const val STANDBY = 12_000L
+
 /** Relógio de quadros: cada leitura de .value dentro de um desenho redesenha a cada frame. */
 /** Relógio único das animações (fundo, destaques, moedas): 30 quadros/s e parado enquanto você navega. */
 object Clock {
@@ -81,15 +84,11 @@ fun frameClock(active: Boolean): State<Long> {
             var last = 0L
             while (true) {
                 val parado = android.os.SystemClock.uptimeMillis() - navAt
-                // navegando: fundo congelado até 0,9 s depois da última tecla
-                if (parado < 900L) {
-                    kotlinx.coroutines.delay(120)
-                    continue
-                }
-                // um minuto sem ninguém mexer: o fundo descansa. Sem isso a TV fica
-                // redesenhando a tela inicial por horas, gastando GPU e esquentando à toa.
-                if (parado > 60_000L) {
-                    kotlinx.coroutines.delay(500)
+                // O fundo só se mexe no "stand-by": 12 segundos sem ninguém tocar no controle.
+                // Enquanto você usa a TV, ele fica parado e toda a força da GPU vai para a
+                // navegação. Qualquer tecla congela o fundo na hora.
+                if (parado < STANDBY) {
+                    kotlinx.coroutines.delay(150)
                     continue
                 }
                 androidx.compose.runtime.withFrameNanos {
@@ -766,7 +765,7 @@ object LogoPainter {
     /** Nome do app no logo: "AstroLume" + "TV". */
     const val WORD = "AstroLume"
 
-    /** Fonte do logo (Inter Display Black Itálica, licença OFL). Definida ao abrir o app. */
+    /** Fonte do logo (Inter Light, licença OFL): fina, igual à da abertura. Definida ao abrir o app. */
     var face: Typeface? = null
 
     /** Textura lunar branca do "TV" (crateras). Gerada uma vez em segundo plano. */
@@ -779,9 +778,11 @@ object LogoPainter {
     }
 
     fun paint(size: Float): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = face ?: Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
+        typeface = face ?: Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
         textSize = size
         textAlign = Paint.Align.LEFT
+        // letras finas respiram melhor com espaço entre elas
+        letterSpacing = 0.07f
     }
 
     fun baseline(p: Paint, cy: Float): Float {
@@ -801,17 +802,19 @@ object LogoPainter {
         val p = paint(size)
         val w = p.measureText(WORD)
         val a255 = (255 * alpha).toInt().coerceIn(0, 255)
-        val depth = max(3, (size * 0.12f).toInt())
-        for (i in depth downTo 1) {
-            val m = 1f - i / depth.toFloat()
-            p.color = AColor.argb(a255, (30 + 40 * m).toInt(), (22 + 40 * m).toInt(), (70 + 80 * m).toInt())
-            nc.drawText(WORD, x0 + i * size * 0.0038f, base + i * size * 0.0055f, p)
-        }
-        p.shader = LinearGradient(x0, 0f, x0 + w, 0f, intArrayOf(0xFF7FE9FF.toInt(), 0xFF9B84FF.toInt(), 0xFFFF7FD8.toInt()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        // sem relevo empilhado: letra fina pede luz atrás, não volume
+        p.shader = LinearGradient(x0, 0f, x0 + w, 0f, intArrayOf(0xFF3A7BFF.toInt(), 0xFF7A4DFF.toInt(), 0xFFC08BFF.toInt()), floatArrayOf(0f, 0.42f, 1f), Shader.TileMode.CLAMP)
         p.setShadowLayer(size * 0.25f, 0f, 0f, AColor.argb((140 * alpha).toInt(), 150, 120, 255))
         p.alpha = a255
         nc.drawText(WORD, x0, base, p)
         p.clearShadowLayer()
+        // contorno fino de luz, o mesmo detalhe da abertura
+        val st = Paint(p)
+        st.shader = null
+        st.style = Paint.Style.STROKE
+        st.strokeWidth = max(0.6f, size * 0.006f)
+        st.color = AColor.argb((110 * alpha).toInt(), 255, 255, 255)
+        nc.drawText(WORD, x0, base, st)
         p.shader = LinearGradient(0f, base - size * 0.8f, 0f, base, intArrayOf(0x8CFFFFFF.toInt(), 0x14FFFFFF, 0x00FFFFFF), floatArrayOf(0f, 0.45f, 0.5f), Shader.TileMode.CLAMP)
         p.alpha = a255
         nc.drawText(WORD, x0, base, p)

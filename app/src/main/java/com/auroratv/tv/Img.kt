@@ -22,7 +22,20 @@ import java.net.URL
 
 /** Imagens dos cartões: logos de canais (internet) e ícones/banners oficiais dos apps instalados na TV. */
 object Img {
-    private val cache = LruCache<String, ImageBitmap>(400)
+    /**
+     * Cache das capas medido em memória, não em quantidade.
+     * Antes guardava 400 imagens sem olhar o tamanho: numa lista grande isso enchia a memória
+     * da TV de capas, e o Android ficava jogando textura fora e carregando de novo o tempo todo.
+     * Agora o teto é 40 MB, que já segura bem mais capas do que cabem na tela.
+     */
+    private val cache = object : LruCache<String, ImageBitmap>(40 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int =
+            try {
+                value.asAndroidBitmap().allocationByteCount
+            } catch (e: Throwable) {
+                512 * 1024
+            }
+    }
     private val failed = HashSet<String>()
 
     fun peek(key: String): ImageBitmap? = cache.get(key)

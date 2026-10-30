@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Sound.keyVol = Store.keyVol
         LogoPainter.face = try {
-            androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_display_black_italic)
+            androidx.core.content.res.ResourcesCompat.getFont(this, R.font.inter_light)
         } catch (e: Throwable) {
             null
         }
