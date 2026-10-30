@@ -1,0 +1,5 @@
+inicio device
+Performing Streamed Install
+Success
+instalado device
+2_foco device
