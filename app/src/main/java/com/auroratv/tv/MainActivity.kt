@@ -432,6 +432,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var histVersion by remember { mutableStateOf(0) }
     // muda quando você guarda ou remove um endereço da TV online, para a lista se redesenhar
     var bump by remember { mutableStateOf(0) }
+    // o que veio da última lista de rede aberta (estilo "abrir fluxo de rede" do VLC)
+    var netRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -712,11 +714,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r
             }
             "Streams" -> streamRows()
-            "Filmes" -> withLogin(iptv("Filmes") + RowData("Filmes de licença livre", free.films))
-            "Séries" -> withLogin(iptv("Séries") + RowData("Animes ao vivo", free.anime))
+            "Filmes" -> withLogin(iptv("Filmes") + RowData("Filmes de licença livre", free.films) + Aberto.rowsFor("Movie", "Classic", "Cinema", "Filme"))
+            "Séries" -> withLogin(iptv("Séries") + RowData("Animes ao vivo", free.anime) + Aberto.rowsFor("Series", "Anime", "Entertainment", "Novela"))
             "Novelas" -> withLogin(iptv("Novelas"))
-            "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs))
-            "Esporte" -> withLogin(iptv("Esporte"))
+            "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs) + Aberto.rowsFor("Documentary", "Science", "Educ", "History"))
+            "Esporte" -> withLogin(iptv("Esporte") + Aberto.rowsFor("Sport", "Outdoor"))
             "Música" -> musicRows(
                 openRows.filter { it.title.endsWith("Música") }.flatMap { it.cards },
                 iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
@@ -736,10 +738,24 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 opcoes.add(mkCard("Abrir endereço", "digitar e assistir agora, sem guardar", "webopen", 9))
                 if (livre >= 0) opcoes.add(mkCard("Guardar endereço", "guarda na lista (até 5)", "webadd", 10))
                 if (salvos.isNotEmpty()) opcoes.add(mkCard("Remover endereço", "apaga um dos guardados", "webdel", 11))
-                listOf(RowData("Seus endereços", salvos), RowData("Opções", opcoes))
+                // transmissão de rede, no espírito do VLC: endereço direto ou lista .m3u
+                val rede = ArrayList<Card>()
+                rede.add(mkCard("Abrir transmissão", "endereço de vídeo ou lista .m3u", "netopen", 2))
+                rede.add(
+                    mkCard(
+                        if (Aberto.channels.isEmpty()) "Canais abertos" else "Canais abertos (${Aberto.channels.size})",
+                        if (Aberto.loading) "baixando…" else Aberto.quando(), "netopen2", 6,
+                    )
+                )
+                listOf(
+                    RowData("Transmissão de rede", rede),
+                    RowData("Seus endereços no navegador", salvos),
+                    RowData("Opções", opcoes),
+                    RowData("Nesta lista", netRows.flatMap { it.cards }.take(60)),
+                )
             }
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
-                RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") +
+                RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") + Aberto.liveRows() +
                 RowData("Abertos pela internet", free.internet) + openRows + RowData("Internacionais", free.intl)
             else -> emptyList()
         }
@@ -805,7 +821,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun toggleFav(c: Card) {
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) return
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || (c.kind.startsWith("web") || c.kind.startsWith("net"))) return
         if (favs.contains(c.name)) {
             favs.remove(c.name)
             showToast("${c.name} saiu dos Favoritos")
@@ -981,6 +997,31 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         showToast("Endereço guardado.")
                         bump++
                     }
+                }
+            }
+            // transmissão de rede: endereço direto vai para o player, lista .m3u vira uma fileira
+            "netopen" -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t ->
+                val u = t.trim()
+                if (u.isBlank()) showToast("Endereço vazio.") else {
+                    showToast("Abrindo…")
+                    Rede.abrir(u) { r ->
+                        when {
+                            r.direct -> play(mkCard("Transmissão de rede", "endereço digitado", "stream", 4, u), emptyList())
+                            r.erro.isNotEmpty() -> showToast(r.erro)
+                            else -> {
+                                netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
+                                showToast("${r.items.size} itens nessa lista.")
+                                bump++
+                            }
+                        }
+                    }
+                }
+            }
+            "netopen2" -> {
+                showToast(if (Aberto.channels.isEmpty()) "Baixando os canais abertos…" else "Atualizando a lista…")
+                Aberto.load(context, force = Aberto.channels.isNotEmpty()) { n ->
+                    showToast(if (n > 0) "$n canais abertos prontos. Veja em TV ao vivo." else Aberto.error)
+                    bump++
                 }
             }
             "webdel" -> {
@@ -1237,7 +1278,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val c = curCard() ?: return
         val list = rows.getOrNull(row - base)?.cards ?: emptyList()
         // estes abrem direto, sem esperar o segundo OK (que serve para favoritar)
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) {
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || (c.kind.startsWith("web") || c.kind.startsWith("net"))) {
             activateCard(c, list)
             return
         }
@@ -2032,7 +2073,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
             FamilyScene(Modifier.fillMaxSize())
         } else if (art != null) {
             // cena do conteúdo: capa ampliada e desfocada ao fundo, com zoom lento, e a capa nítida à direita
-            androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(900), label = "hero") { img ->
+            androidx.compose.animation.Crossfade(targetState = art, animationSpec = tween(420), label = "hero") { img ->
                 Box(Modifier.fillMaxSize()) {
                     androidx.compose.foundation.Image(
                         Img.soft(img), null,
@@ -2094,6 +2135,8 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "webopen" -> "OK pede o endereço e abre agora, sem guardar"
                     c.kind == "webadd" -> "OK pede o endereço e o nome, e guarda na lista"
                     c.kind == "webdel" -> "OK remove o último endereço guardado"
+                    c.kind == "netopen" -> "OK pede o endereço: vídeo direto ou lista .m3u"
+                    c.kind == "netopen2" -> "OK baixa ou atualiza a lista pública de canais abertos"
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
@@ -2147,9 +2190,16 @@ private fun ContentScreen(
                     slide = (slide + 1) % slides.size
                 }
             }
+            // O destaque só troca quando o foco para. Segurando a seta, a TV refazia a imagem
+            // grande a cada tecla, e era disso que vinha a maior parte do engasgo ao navegar.
+            var parado by remember { mutableStateOf(cur) }
+            LaunchedEffect(cur) {
+                delay(280)
+                parado = cur
+            }
             val heroCard = when {
-                active && cur != null && (cur.img.isNotEmpty() || slides.isEmpty()) -> cur
-                active -> cur
+                active && parado != null && (parado!!.img.isNotEmpty() || slides.isEmpty()) -> parado
+                active -> parado
                 slides.isNotEmpty() -> slides[slide % slides.size]
                 else -> cur
             }
