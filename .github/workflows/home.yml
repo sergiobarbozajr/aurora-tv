@@ -49,11 +49,11 @@ jobs:
             echo "inicio $(adb get-state)" >> cap/passos.txt
             adb shell wm size 1280x720; adb shell wm density 213; sleep 2
             adb install -r home/build/outputs/apk/debug/home-debug.apk >> cap/passos.txt 2>&1
-            adb shell cmd package set-home-activity com.astrolume.home/.HomeActivity || true
+            # nao vira a tela inicial do emulador: isso derrubava o emulador no meio do teste
             adb logcat -c
             # grava o log sem parar: se o emulador morrer no meio, ainda sobra a prova do que aconteceu
             (adb logcat -v time > cap/logcat.txt 2>&1 &) ; sleep 1
-            adb shell input keyevent KEYCODE_HOME; sleep 12
+            adb shell am start -n com.astrolume.home/.HomeActivity; sleep 12
             echo "instalado $(adb get-state)" >> cap/passos.txt
             adb exec-out screencap -p > cap/1_repouso.png
             adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null
@@ -91,13 +91,12 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_LEFT; adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 2
             adb exec-out screencap -p > cap/9_todos_apps.png
             echo "9_todos_apps $(adb get-state)" >> cap/passos.txt
-            adb shell input keyevent KEYCODE_BACK; sleep 1
-            adb shell input keyevent KEYCODE_HOME; sleep 2
+            adb shell input keyevent KEYCODE_BACK; sleep 2
             adb exec-out screencap -p > cap/10_inicio_depois.png
             echo "10_inicio $(adb get-state)" >> cap/passos.txt
             adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
             # tela parada: sem ninguem mexer, o launcher nao pode continuar desenhando (gasta GPU e esquenta)
-            adb shell input keyevent KEYCODE_HOME; sleep 4
+            sleep 4
             adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null; sleep 8
             adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames" > repouso.txt || true
             echo "medido $(adb get-state)" >> cap/passos.txt
