@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -74,15 +75,25 @@ fun Backdrop(theme: Int) {
                 val w = size.width; val h = size.height
                 val n1 = Brush.radialGradient(listOf(Color(0x663A2A7A), Color.Transparent), Offset(w * .75f, -h * .1f), w * .5f)
                 val n2 = Brush.radialGradient(listOf(Color(0x550F3A5A), Color.Transparent), Offset(w * .1f, h * .4f), w * .45f)
+                // as estrelas vão em poucos grupos (mesmo tamanho e brilho), e cada grupo é
+                // um desenho só. Antes eram 520 desenhos por quadro — pesado para a TV.
                 val r = Random(7)
-                val stars = List(520) {
-                    val band = r.nextFloat() < .4f
-                    val y = if (band) h * .8f + (r.nextFloat() + r.nextFloat() + r.nextFloat() - 1.5f) * h * .12f else r.nextFloat() * h
-                    Triple(Offset(r.nextFloat() * w, y), .4f + r.nextFloat() * 1.3f, .25f + r.nextFloat() * .7f)
+                val grupos = HashMap<Pair<Int, Int>, ArrayList<Offset>>()
+                repeat(520) {
+                    val faixa = r.nextFloat() < .4f
+                    val y = if (faixa) h * .8f + (r.nextFloat() + r.nextFloat() + r.nextFloat() - 1.5f) * h * .12f else r.nextFloat() * h
+                    val tam = (1 + r.nextFloat() * 3).toInt()              // 1..3
+                    val brilho = (3 + r.nextFloat() * 4).toInt()           // 3..6
+                    grupos.getOrPut(tam to brilho) { ArrayList() }.add(Offset(r.nextFloat() * w, y))
+                }
+                val estrelas = grupos.map { (k, pontos) ->
+                    Triple(pontos.toList(), k.first * .45f + .3f, k.second / 8f)
                 }
                 onDrawBehind {
                     drawRect(n1); drawRect(n2)
-                    for ((o, rad, a) in stars) drawCircle(Color(0xFFE6ECFF).copy(alpha = a), rad * density / 2f, o)
+                    for ((pontos, rad, a) in estrelas) {
+                        drawPoints(pontos, PointMode.Points, Color(0xFFE6ECFF).copy(alpha = a), rad * density, StrokeCap.Round)
+                    }
                 }
             }
         )

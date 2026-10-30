@@ -1,12 +1,9 @@
 package com.astrolume.home
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -34,13 +31,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -193,7 +191,8 @@ fun AppTile(a: AppEntry, focused: Boolean, pal: Pal, w: Dp = 120.dp, h: Dp = 68.
     val sc by animateFloatAsState(if (focused) 1.09f else 1f, tween(170), label = "s")
     Box(
         Modifier.size(w, h).graphicsLayer { scaleX = sc; scaleY = sc }
-            .shadow(if (focused) 14.dp else 4.dp, TileShape)
+            // sombra só no app em foco: doze sombras por quadro pesam na GPU da TV
+            .let { if (focused) it.shadow(14.dp, TileShape) else it }
             .clip(TileShape)
             .background(Brush.linearGradient(listOf(a.c1, a.c2), Offset(0f, 0f), Offset(w.value * 2f, h.value * 3f)))
             .border(if (focused) 3.dp else 1.dp, if (focused) pal.focus else Color(0x59FFFFFF), TileShape),
@@ -211,23 +210,43 @@ fun AppTile(a: AppEntry, focused: Boolean, pal: Pal, w: Dp = 120.dp, h: Dp = 68.
     }
 }
 
-/** brilho de vidro + reflexo que passa no app em foco */
+/**
+ * Brilho de vidro + reflexo que passa no app em foco.
+ * O reflexo passa duas vezes quando o foco chega e para: assim a tela inicial fica
+ * parada de verdade quando ninguém mexe (nada de GPU acesa e esquentando à toa).
+ */
 @Composable
 private fun Gloss(focused: Boolean, top: Float) {
-    val sweep = if (focused) {
-        val tr = rememberInfiniteTransition(label = "sweep")
-        tr.animateFloat(-0.5f, 1.6f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "x").value
-    } else -2f
+    val sweep = remember { mutableFloatStateOf(PARADO) }
+    LaunchedEffect(focused) {
+        if (!focused) { sweep.floatValue = PARADO; return@LaunchedEffect }
+        val a = Animatable(-0.5f)
+        repeat(2) {
+            a.snapTo(-0.5f)
+            a.animateTo(1.6f, tween(1600, easing = LinearEasing)) { sweep.floatValue = value }
+        }
+        sweep.floatValue = PARADO
+    }
     Box(
-        Modifier.fillMaxSize().drawWithContent {
-            drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = top), .44f to Color.White.copy(alpha = top * .28f), .46f to Color.Transparent, 1f to Color(0x2E000000)))
-            if (sweep > -1f) {
-                val x = size.width * sweep
-                drawRect(Brush.linearGradient(listOf(Color.Transparent, Color(0x73FFFFFF), Color.Transparent), Offset(x - size.width * .25f, 0f), Offset(x + size.width * .1f, size.height)))
+        Modifier.fillMaxSize().drawWithCache {
+            // os degradês ficam prontos uma vez só, não a cada quadro
+            val vidro = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = top), .44f to Color.White.copy(alpha = top * .28f),
+                .46f to Color.Transparent, 1f to Color(0x2E000000),
+            )
+            onDrawBehind {
+                drawRect(vidro)
+                val s = sweep.floatValue
+                if (s > -1f) {
+                    val x = size.width * s
+                    drawRect(Brush.linearGradient(listOf(Color.Transparent, Color(0x73FFFFFF), Color.Transparent), Offset(x - size.width * .25f, 0f), Offset(x + size.width * .1f, size.height)))
+                }
             }
         }
     )
 }
+
+private const val PARADO = -2f
 
 @Composable
 private fun PlusTile(focused: Boolean, pal: Pal) {
