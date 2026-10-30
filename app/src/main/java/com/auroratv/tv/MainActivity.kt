@@ -1733,7 +1733,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            // sem pintar preto aqui: a tela já é preta atrás e o fundo cobre tudo.
+            // era mais uma pintura de tela cheia a cada quadro, jogada fora.
             .focusRequester(focus)
             .onPreviewKeyEvent { e ->
                 if (zone == Z.KEYMAP) {

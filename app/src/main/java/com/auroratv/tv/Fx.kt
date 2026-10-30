@@ -80,9 +80,16 @@ fun frameClock(active: Boolean): State<Long> {
             // 30 quadros por segundo bastam para o fundo; sobra processamento para a navegação
             var last = 0L
             while (true) {
+                val parado = android.os.SystemClock.uptimeMillis() - navAt
                 // navegando: fundo congelado até 0,9 s depois da última tecla
-                if (android.os.SystemClock.uptimeMillis() - navAt < 900L) {
+                if (parado < 900L) {
                     kotlinx.coroutines.delay(120)
+                    continue
+                }
+                // um minuto sem ninguém mexer: o fundo descansa. Sem isso a TV fica
+                // redesenhando a tela inicial por horas, gastando GPU e esquentando à toa.
+                if (parado > 60_000L) {
+                    kotlinx.coroutines.delay(500)
                     continue
                 }
                 androidx.compose.runtime.withFrameNanos {
@@ -597,7 +604,24 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
     // zoom lento do espaço e água/calor: seguem o relógio do fundo (param junto quando você navega)
     val slow = remember(tick) { androidx.compose.runtime.derivedStateOf { tick.value / 66_666_666L } }
     val d = remember { StarData() }
-    Box(Modifier.fillMaxSize().background(Color(0xFF02030A))) {
+    // véu por tema: temas claros (mar, deserto) escurecem mais, para o texto claro manter contraste
+    val veil = when (theme) {
+        3 -> 0.42f
+        4 -> 0.58f
+        1 -> 0.26f
+        5 -> 0.30f
+        6 -> 0.26f
+        7 -> 0.50f
+        8 -> 0.24f
+        9 -> 0.46f
+        10 -> 0.22f
+        else -> 0.22f
+    }
+    // o véu vai dentro da própria imagem (antes era outra camada do tamanho da tela):
+    // uma camada a menos para a TV pintar 30 vezes por segundo
+    val veilColor = Color(0xFF030509).copy(alpha = veil)
+    // só o tema dos planetas deixa a imagem translúcida, então só ele precisa de cor atrás
+    Box(if (theme == 1) Modifier.fillMaxSize().background(Color(0xFF02030A)) else Modifier.fillMaxSize()) {
         Image(
             painterResource(
                 when (theme) {
@@ -642,28 +666,20 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
                         0f, 0f, 0f, 1f, 0f
                     )
                 )
-            ) else null
+            ) else androidx.compose.ui.graphics.ColorFilter.tint(veilColor, androidx.compose.ui.graphics.BlendMode.SrcOver)
         )
-        // véu por tema: temas claros (mar, deserto) escurecem mais, para o texto claro manter contraste
-        val veil = when (theme) {
-            3 -> 0.42f
-            4 -> 0.58f
-            1 -> 0.26f
-            5 -> 0.30f
-            6 -> 0.26f
-            7 -> 0.50f
-            8 -> 0.24f
-            9 -> 0.46f
-            10 -> 0.22f
-            else -> 0.22f
-        }
-        Box(Modifier.fillMaxSize().background(Color(0xFF030509).copy(alpha = veil)))
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0f to Color(0x33030509), 0.25f to Color.Transparent, 0.8f to Color.Transparent, 1f to Color(0x99030509))
-            )
-        )
+        // só a Lua usa filtro de cor próprio, então só ela ainda precisa do véu em separado
+        if (theme == 10) Box(Modifier.fillMaxSize().background(veilColor))
         Canvas(Modifier.fillMaxSize()) {
+            // sombra de cima e de baixo: só nas faixas onde ela aparece. Antes era um degradê
+            // do tamanho da tela inteira, com o meio todo transparente — pintura jogada fora.
+            val topH = size.height * 0.25f
+            val botH = size.height * 0.20f
+            drawRect(Brush.verticalGradient(0f to Color(0x33030509), 1f to Color.Transparent, endY = topH), size = Size(size.width, topH))
+            drawRect(
+                Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0x99030509), startY = size.height - botH, endY = size.height),
+                topLeft = Offset(0f, size.height - botH), size = Size(size.width, botH),
+            )
             val now = tick.value
             val t = now / 1_000_000_000f
             val dt = if (d.last == 0L) 0f else ((now - d.last) / 1_000_000f).coerceIn(0f, 50f)
@@ -718,9 +734,14 @@ fun BackgroundFx(tick: State<Long>, theme: Int = 0) {
                 val c = Offset(d.px[i] * w, d.py[i] * h)
                 val col = d.pc[i]
                 val hr = (12f + 12f * sn) * u
+                // brilho em três anéis chapados: o degradê radial criava um efeito novo a cada
+                // quadro para cada estrela, e isso é das contas mais caras que existem aqui
+                val gl = 0.55f + 0.3f * sn
+                drawCircle(col.al(gl * 0.16f), hr, c)
+                drawCircle(col.al(gl * 0.30f), hr * 0.62f, c)
                 drawCircle(
-                    Brush.radialGradient(listOf(col.al(0.55f + 0.3f * sn), col.al(0f)), center = c, radius = hr),
-                    hr, c
+                    col.al(gl * 0.55f),
+                    hr * 0.3f, c
                 )
                 drawCircle(Color.White.al(0.65f + 0.35f * sn), (1.1f + 0.7f * sn) * u, c)
                 drawCircle(col.al((1f - p) * 0.38f), (3f + 34f * p) * u, c, style = Stroke(width = 1f * u))
