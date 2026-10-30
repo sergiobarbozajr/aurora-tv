@@ -44,49 +44,64 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 4096
           script: |
+            set +e
             mkdir -p cap
+            P() { echo "[$(date +%M:%S)] $*" >> cap/passos.txt; adb get-state >> cap/passos.txt 2>&1; }
+            P inicio
             adb shell wm size 1920x1080; adb shell wm density 320; sleep 2
-            adb install -r home/build/outputs/apk/debug/home-debug.apk
+            adb install -r home/build/outputs/apk/debug/home-debug.apk >> cap/passos.txt 2>&1
             adb shell cmd package set-home-activity com.astrolume.home/.HomeActivity || true
             adb logcat -c
+            # grava o log sem parar: se o emulador morrer no meio, ainda sobra a prova do que aconteceu
+            (adb logcat -v time > cap/logcat.txt 2>&1 &) ; sleep 1
             adb shell input keyevent KEYCODE_HOME; sleep 12
+            P instalado
             adb exec-out screencap -p > cap/1_repouso.png
             adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null
             for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
             for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_LEFT; done
             adb shell input keyevent KEYCODE_DPAD_RIGHT; adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 1
             adb exec-out screencap -p > cap/2_foco_app.png
+            P 2_foco
             adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 1; adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 2
             adb exec-out screencap -p > cap/3_aberto.png
+            P 3_aberto
             for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
             adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_UP
             adb shell input keyevent KEYCODE_DPAD_LEFT; sleep 1
             adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 2
             adb exec-out screencap -p > cap/4_menu.png
+            P 4_menu
             adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 1
             adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 2
             adb exec-out screencap -p > cap/5_tema_espacial.png
+            P 5_tema
             for i in 1 2 3; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 1; done; sleep 1
             adb exec-out screencap -p > cap/6_tema_imagem.png
+            P 6_tema_imagem
             adb shell input keyevent KEYCODE_BACK; sleep 1
             adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 2
             adb exec-out screencap -p > cap/7_organizar.png
+            P 7_organizar
             adb shell input keyevent KEYCODE_DPAD_CENTER; adb shell input keyevent KEYCODE_DPAD_CENTER
             adb shell input keyevent KEYCODE_BACK; sleep 1
             adb shell input keyevent KEYCODE_DPAD_DOWN; adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 7
             adb exec-out screencap -p > cap/8_desempenho.png
+            P 8_desempenho
             adb shell input keyevent KEYCODE_BACK; adb shell input keyevent KEYCODE_BACK; sleep 1
             adb shell input keyevent KEYCODE_DPAD_LEFT; adb shell input keyevent KEYCODE_DPAD_CENTER; sleep 2
             adb exec-out screencap -p > cap/9_todos_apps.png
+            P 9_todos_apps
             adb shell input keyevent KEYCODE_BACK; sleep 1
             adb shell input keyevent KEYCODE_HOME; sleep 2
             adb exec-out screencap -p > cap/10_inicio_depois.png
+            P 10_inicio
             adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
             # tela parada: sem ninguem mexer, o launcher nao pode continuar desenhando (gasta GPU e esquenta)
             adb shell input keyevent KEYCODE_HOME; sleep 4
             adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null; sleep 8
             adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames" > repouso.txt || true
-            adb logcat -d > cap/logcat.txt
+            P medido; sleep 2
             grep -E "ANR in com.astrolume|FATAL EXCEPTION|Process: com.astrolume" cap/logcat.txt > travas.txt || true
             adb shell pidof com.astrolume.home > vivo.txt || echo "morto" > vivo.txt
             adb shell am start -n com.astrolume.home/.HomeActivity --es home_test "theme:1"; sleep 3
@@ -96,6 +111,8 @@ jobs:
         if: always()
         run: |
           cat gfx.txt || true
+          echo "::notice title=Ate onde foi::$(tr '\n' '|' < cap/passos.txt | tail -c 2000)"
+          if [ ! -s gfx.txt ]; then echo "::error title=Teste interrompido::o emulador parou antes de medir; ultimo passo: $(grep -c . cap/passos.txt) marcas"; fi
           if [ -s travas.txt ]; then echo "::error title=Travamento::$(head -8 travas.txt | tr '\n' '|')"; grep -A12 "FATAL EXCEPTION" cap/logcat.txt | head -30 | tr '\n' '|' | cut -c1-3500 | sed 's/^/::error title=Erro::/'; exit 1; fi
           if grep -q morto vivo.txt; then echo "::error title=Travamento::o launcher fechou durante o teste"; exit 1; fi
           P50=$(grep -m1 "50th percentile" gfx.txt | grep -oE "[0-9]+ms" | head -1 | tr -d ms)
@@ -119,6 +136,8 @@ jobs:
         if: always()
         run: |
           cd cap || exit 0
+          # guarda so o essencial do log, para caber na branch de capturas
+          grep -iE "astrolume|AndroidRuntime|FATAL|ANR |Choreographer|lowmemory|died|Force" logcat.txt | tail -400 > log.txt 2>/dev/null || true
           rm -f logcat.txt
           cp ../gfx.txt ../repouso.txt . 2>/dev/null || true
           git init -q && git checkout -q -b capturas-home
