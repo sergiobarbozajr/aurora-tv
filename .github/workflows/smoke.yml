@@ -68,10 +68,18 @@ jobs:
             adb logcat -d -s AuroraTest:I AuroraAI:I AuroraImg:I > test.txt || true
             adb shell input keyevent KEYCODE_BACK
             sleep 3
+            # aquecimento: as primeiras teclas pagam o carregamento das capas e nao representam o uso normal
+            for i in $(seq 1 8); do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
+            for i in $(seq 1 8); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
+            sleep 3
+            # agora a medida de verdade, com amostra grande para a mediana nao oscilar entre execucoes
             adb shell dumpsys gfxinfo com.auroratv.tv reset > /dev/null
-            for i in $(seq 1 12); do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
-            for i in $(seq 1 6); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
-            for i in $(seq 1 12); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
+            for i in $(seq 1 14); do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
+            for i in $(seq 1 4); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
+            for i in $(seq 1 14); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
+            for i in $(seq 1 4); do adb shell input keyevent KEYCODE_DPAD_UP; done
+            for i in $(seq 1 14); do adb shell input keyevent KEYCODE_DPAD_RIGHT; done
+            for i in $(seq 1 14); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
             sleep 2
             adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
             # Em uso: logo depois de mexer, o app nao pode ficar desenhando sozinho.
