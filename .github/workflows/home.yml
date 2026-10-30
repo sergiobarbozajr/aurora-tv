@@ -47,7 +47,7 @@ jobs:
             set +e
             mkdir -p cap
             echo "inicio $(adb get-state)" >> cap/passos.txt
-            adb shell wm size 1280x720; adb shell wm density 213; sleep 2
+            adb shell wm size 1920x1080; adb shell wm density 320; sleep 2
             adb install -r home/build/outputs/apk/debug/home-debug.apk >> cap/passos.txt 2>&1
             # nao vira a tela inicial do emulador: isso derrubava o emulador no meio do teste
             adb logcat -c
@@ -62,6 +62,15 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_RIGHT; adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 1
             adb exec-out screencap -p > cap/2_foco_app.png
             echo "2_foco $(adb get-state)" >> cap/passos.txt
+            # as MEDIDAS vem primeiro: o passeio pelas telas e demorado e o emulador do GitHub
+            # as vezes morre no meio. Medindo agora, o resultado nao depende dele chegar ao fim.
+            adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
+            sleep 4
+            adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null; sleep 8
+            adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames" > repouso.txt || true
+            grep -E "ANR in com.astrolume|FATAL EXCEPTION|Process: com.astrolume" cap/logcat.txt > travas.txt || true
+            adb shell pidof com.astrolume.home > vivo.txt || echo "morto" > vivo.txt
+            echo "medido $(adb get-state)" >> cap/passos.txt
             adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 1; adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 2
             adb exec-out screencap -p > cap/3_aberto.png
             echo "3_aberto $(adb get-state)" >> cap/passos.txt
@@ -94,15 +103,8 @@ jobs:
             adb shell input keyevent KEYCODE_BACK; sleep 2
             adb exec-out screencap -p > cap/10_inicio_depois.png
             echo "10_inicio $(adb get-state)" >> cap/passos.txt
-            adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
-            # tela parada: sem ninguem mexer, o launcher nao pode continuar desenhando (gasta GPU e esquenta)
-            sleep 4
-            adb shell dumpsys gfxinfo com.astrolume.home reset > /dev/null; sleep 8
-            adb shell dumpsys gfxinfo com.astrolume.home | grep -E "Total frames" > repouso.txt || true
-            echo "medido $(adb get-state)" >> cap/passos.txt
-            sleep 2
+            # segunda checagem de travamento, agora depois de passar por todas as telas
             grep -E "ANR in com.astrolume|FATAL EXCEPTION|Process: com.astrolume" cap/logcat.txt > travas.txt || true
-            adb shell pidof com.astrolume.home > vivo.txt || echo "morto" > vivo.txt
             adb shell am start -n com.astrolume.home/.HomeActivity --es home_test "theme:1"; sleep 3
             adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 2
             adb exec-out screencap -p > cap/11_espacial_aberto.png
