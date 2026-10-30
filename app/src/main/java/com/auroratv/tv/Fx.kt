@@ -886,7 +886,8 @@ private val ICONS = mapOf(
     "news" to "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM7 9h6M7 13h10M7 16h10",
     "tv" to "M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM8 21l4-3 4 3",
     "gear" to "M8.7 12a3.3 3.3 0 1 0 6.6 0a3.3 3.3 0 1 0 -6.6 0M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2",
-    "power" to "M12 3v8M6.4 6.8a8 8 0 1 0 11.2 0"
+    "power" to "M12 3v8M6.4 6.8a8 8 0 1 0 11.2 0",
+    "globe" to "M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"
 )
 
 private val iconCache = HashMap<String, Path>()

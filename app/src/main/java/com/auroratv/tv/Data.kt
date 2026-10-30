@@ -35,6 +35,7 @@ val SECTIONS = listOf(
     Section("Esporte", "ball", "rows"),
     Section("Notícias", "news", "rows"),
     Section("TV ao vivo", "tv", "live"),
+    Section("TV online", "globe", "rows"),
     Section("Música", "music", "rows"),
     Section("Configurações", "gear", "settings"),
     Section("Sair do app", "power", "exit")
@@ -226,6 +227,20 @@ object Store {
     }
 
     fun anyAcc(): Boolean = (0 until 5).any { acc(it).first.isNotBlank() }
+
+    /**
+     * TV online pelo navegador: até 5 endereços guardados, só nome e endereço.
+     * Não guarda usuário nem senha — o login, quando o site pedir, é feito na própria página.
+     */
+    fun site(k: Int): Pair<String, String> =
+        Pair(sp.getString("web_name_$k", "") ?: "", sp.getString("web_url_$k", "") ?: "")
+
+    fun setSite(k: Int, name: String, url: String) {
+        sp.edit().putString("web_name_$k", name).putString("web_url_$k", url).apply()
+    }
+
+    /** Primeiro espaço livre entre os 5, ou -1 se já estiverem todos ocupados. */
+    fun freeSite(): Int = (0 until 5).firstOrNull { site(it).second.isBlank() } ?: -1
 
     fun eqVal(k: String): Int = int("eq_$k", 0)
     fun setEqVal(k: String, v: Int) = putInt("eq_$k", v)

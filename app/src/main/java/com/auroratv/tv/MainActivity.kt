@@ -430,6 +430,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     val favs = remember { mutableStateListOf<String>().apply { addAll(Store.favs()) } }
     var histVersion by remember { mutableStateOf(0) }
+    // muda quando você guarda ou remove um endereço da TV online, para a lista se redesenhar
+    var bump by remember { mutableStateOf(0) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -720,6 +722,22 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
             )
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
+            // IPTV pelo navegador: só endereços, sem usuário nem senha. Convive com a conta IPTV normal.
+            "TV online" -> {
+                bump.let { }
+                val salvos = (0 until 5).mapNotNull { k ->
+                    val (nome, u) = Store.site(k)
+                    if (u.isBlank()) null
+                    else mkCard(nome.ifBlank { u.removePrefix("https://").removePrefix("http://").substringBefore('/') },
+                        "OK abre · endereço $k", "web", k + 3, u, k.toString(), emptyList(), u)
+                }
+                val livre = Store.freeSite()
+                val opcoes = ArrayList<Card>()
+                opcoes.add(mkCard("Abrir endereço", "digitar e assistir agora, sem guardar", "webopen", 9))
+                if (livre >= 0) opcoes.add(mkCard("Guardar endereço", "guarda na lista (até 5)", "webadd", 10))
+                if (salvos.isNotEmpty()) opcoes.add(mkCard("Remover endereço", "apaga um dos guardados", "webdel", 11))
+                listOf(RowData("Seus endereços", salvos), RowData("Opções", opcoes))
+            }
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
                 RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") +
                 RowData("Abertos pela internet", free.internet) + openRows + RowData("Internacionais", free.intl)
@@ -787,7 +805,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun toggleFav(c: Card) {
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote") return
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) return
         if (favs.contains(c.name)) {
             favs.remove(c.name)
             showToast("${c.name} saiu dos Favoritos")
@@ -947,6 +965,34 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
             "antenna" -> openAntenna(c)
+            "web" -> WebActivity.open(context, c.url ?: "")
+            "webopen" -> askText("Endereço do site", "https://", false) { t ->
+                val u = WebActivity.fix(t)
+                if (u.isBlank()) showToast("Endereço vazio.") else WebActivity.open(context, u)
+            }
+            "webadd" -> askText("Endereço do site", "https://", false) { t ->
+                val u = WebActivity.fix(t)
+                val k = Store.freeSite()
+                when {
+                    u.isBlank() -> showToast("Endereço vazio.")
+                    k < 0 -> showToast("Os 5 espaços já estão ocupados. Remova um antes.")
+                    else -> askText("Nome para esse endereço", "", false) { n ->
+                        Store.setSite(k, n.trim(), u)
+                        showToast("Endereço guardado.")
+                        bump++
+                    }
+                }
+            }
+            "webdel" -> {
+                val k = (0 until 5).lastOrNull { Store.site(it).second.isNotBlank() }
+                if (k == null) showToast("Não há endereço guardado.")
+                else {
+                    val nome = Store.site(k).first.ifBlank { Store.site(k).second }
+                    Store.setSite(k, "", "")
+                    showToast("Removido: $nome")
+                    bump++
+                }
+            }
             "stream", "vod" -> play(c, list)
             "series" -> {
                 showToast("Carregando temporadas e episódios…")
@@ -1190,7 +1236,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     fun cardOk() {
         val c = curCard() ?: return
         val list = rows.getOrNull(row - base)?.cards ?: emptyList()
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote") {
+        // estes abrem direto, sem esperar o segundo OK (que serve para favoritar)
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) {
             activateCard(c, list)
             return
         }
@@ -2043,6 +2090,10 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
                     c.kind == "antenna" -> "OK abre a TV na entrada de antena"
+                    c.kind == "web" -> "OK abre no navegador da TV · " + c.desc.take(90)
+                    c.kind == "webopen" -> "OK pede o endereço e abre agora, sem guardar"
+                    c.kind == "webadd" -> "OK pede o endereço e o nome, e guarda na lista"
+                    c.kind == "webdel" -> "OK remove o último endereço guardado"
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
