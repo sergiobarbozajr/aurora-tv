@@ -2437,6 +2437,7 @@ private fun IptvBox(
                 Text("▶", color = CAccent, fontSize = ts(17))
             }
             Spacer(Modifier.height(u(12)))
+            @Composable
             fun linha(titulo: String, valor: String, vazio: Boolean, idx: Int) {
                 Text(titulo, color = CDim, fontSize = ts(12.5f))
                 Spacer(Modifier.height(u(4)))
