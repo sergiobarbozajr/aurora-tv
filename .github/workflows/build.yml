@@ -31,7 +31,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Compilar o APK (debug)
-        run: gradle assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+        run: gradle :app:assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
 
       - name: Mostrar erros de compilacao
         if: failure()

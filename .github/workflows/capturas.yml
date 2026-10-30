@@ -3,6 +3,7 @@ name: Capturas dos temas (emulador Android 14)
 on:
   push:
     branches: [ 'teste-*' ]
+    paths-ignore: [ 'home/**', '.github/workflows/home.yml' ]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +27,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Compilar
-        run: gradle assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+        run: gradle :app:assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
       - name: Mostrar erros de compilacao
         if: failure()
         run: |
