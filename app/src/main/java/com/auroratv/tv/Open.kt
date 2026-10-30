@@ -118,6 +118,8 @@ object Aberto {
             }
             val list = if (body == null) emptyList() else parse(body)
             channels = list
+            liveCache = emptyList()
+            synchronized(tagCache) { tagCache.clear() }
             at = if (f.exists()) f.lastModified() else 0L
             error = if (list.isEmpty()) "não deu para baixar a lista de canais abertos" else ""
             loading = false
@@ -130,8 +132,14 @@ object Aberto {
     private fun cardOf(ch: Ch, i: Int): Card =
         Card(ch.name, ch.group, "stream", Palette.pick(i).first, Palette.pick(i).second, ch.url, "", emptyList(), "Canal aberto · " + ch.group, ch.logo)
 
+    // as fileiras são montadas uma vez, quando a lista chega, e não a cada vez que a tela pede
+    @Volatile
+    private var liveCache: List<RowData> = emptyList()
+    private val tagCache = HashMap<String, List<RowData>>()
+
     /** As fileiras para a TV ao vivo: primeiro o que é do Brasil, depois por categoria. */
     fun liveRows(): List<RowData> {
+        liveCache.let { if (it.isNotEmpty()) return it }
         val all = channels
         if (all.isEmpty()) return emptyList()
         val out = ArrayList<RowData>()
@@ -144,11 +152,14 @@ object Aberto {
             if (list.size < 6) continue
             out.add(RowData(g, list.take(60).mapIndexed { i, c -> cardOf(c, i + g.hashCode() and 7) }))
         }
+        liveCache = out
         return out
     }
 
     /** Canais de um assunto, para encaixar nas seções de Filmes, Séries e companhia. */
     fun rowsFor(vararg termos: String): List<RowData> {
+        val chave = termos.joinToString("|")
+        synchronized(tagCache) { tagCache[chave]?.let { return it } }
         val all = channels
         if (all.isEmpty()) return emptyList()
         val hit = all.filter { ch -> termos.any { ch.group.contains(it, true) } }
@@ -157,7 +168,9 @@ object Aberto {
         val out = ArrayList<RowData>()
         if (br.isNotEmpty()) out.add(RowData("Canais abertos do Brasil", br.take(40).mapIndexed { i, c -> cardOf(c, i) }))
         out.add(RowData("Canais abertos pelo mundo", hit.filter { !it.country.contains("BR", true) }.take(60).mapIndexed { i, c -> cardOf(c, i + 5) }))
-        return out.filter { it.cards.isNotEmpty() }
+        val r = out.filter { it.cards.isNotEmpty() }
+        synchronized(tagCache) { tagCache[chave] = r }
+        return r
     }
 
     fun quando(): String {

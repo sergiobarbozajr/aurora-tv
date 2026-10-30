@@ -113,7 +113,7 @@ private val CCardHi: Color get() = ThemeState.pal.cardHi
 private val CLive = Color(0xFFFF6B81)
 private val CPanel: Color get() = ThemeState.pal.panel
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES, SOUND }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, REDE, EXIT, KEYMAP, READER, EPISODES, SOUND }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -434,6 +434,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var bump by remember { mutableStateOf(0) }
     // o que veio da última lista de rede aberta (estilo "abrir fluxo de rede" do VLC)
     var netRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
+    var netSel by remember { mutableStateOf(0) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -768,7 +769,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         return out.filter { it.cards.isNotEmpty() }
     }
 
-    val rows = remember(nav, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows, searchRows, hideOff) { rowsFor(nav) }
+    val rows = remember(nav, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows, searchRows, hideOff, bump) { rowsFor(nav) }
     val sec = SECTIONS[nav]
     val base = if (sec.kind == "search") 1 else 0
 
@@ -1006,23 +1007,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 }
             }
             // transmissão de rede: endereço direto vai para o player, lista .m3u vira uma fileira
-            "netopen" -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t ->
-                val u = t.trim()
-                if (u.isBlank()) showToast("Endereço vazio.") else {
-                    showToast("Abrindo…")
-                    Rede.abrir(u) { r ->
-                        when {
-                            r.direct -> play(mkCard("Transmissão de rede", "endereço digitado", "stream", 4, u), emptyList())
-                            r.erro.isNotEmpty() -> showToast(r.erro)
-                            else -> {
-                                netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
-                                showToast("${r.items.size} itens nessa lista.")
-                                bump++
-                            }
-                        }
-                    }
-                }
-            }
+            "netopen" -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t -> abrirRede(t) }
             "netopen2" -> {
                 showToast(if (Aberto.channels.isEmpty()) "Baixando os canais abertos…" else "Atualizando a lista…")
                 Aberto.load(context, force = Aberto.channels.isNotEmpty()) { n ->
@@ -1307,6 +1292,27 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
     }
 
+    /** Abre um endereço de rede: vídeo direto vai para o player, lista .m3u vira uma fileira. */
+    fun abrirRede(t: String) {
+        val u = t.trim()
+        if (u.isBlank()) {
+            showToast("Endereço vazio.")
+            return
+        }
+        showToast("Abrindo…")
+        Rede.abrir(u) { r ->
+            when {
+                r.direct -> play(mkCard("Transmissão de rede", "endereço digitado", "stream", 4, u), emptyList())
+                r.erro.isNotEmpty() -> showToast(r.erro)
+                else -> {
+                    netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
+                    showToast("${r.items.size} itens. Veja em TV online.")
+                    bump++
+                }
+            }
+        }
+    }
+
     fun settingsAct(a: String) {
         val item = SETTING_ITEMS[sidx]
         val ek = item.edit
@@ -1358,6 +1364,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         zone = Z.IPTV
                         loginField = 0
                         iptvFirst = false
+                    }
+                    "Transmissão de rede" -> {
+                        netSel = 0
+                        zone = Z.REDE
                     }
                     "Atualização do app" -> updAction()
                 }
@@ -1746,6 +1756,49 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 "ok", "right" -> testIdx = (testIdx + 1) % TEST_COLORS.size
                 "left" -> testIdx = (testIdx + TEST_COLORS.size - 1) % TEST_COLORS.size
             }
+            Z.REDE -> {
+                val n = 4 + (0 until 5).count { Store.net(it).isNotBlank() }
+                when (a) {
+                    "back", "home" -> zone = Z.CONTENT
+                    "up" -> netSel = (netSel + n - 1) % n
+                    "down" -> netSel = (netSel + 1) % n
+                    "ok" -> when (netSel) {
+                        0 -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t -> abrirRede(t) }
+                        1 -> askText("Endereço para guardar", "http://", false) { t ->
+                            val u = t.trim()
+                            val k = (0 until 5).firstOrNull { Store.net(it).isBlank() }
+                            when {
+                                u.isBlank() -> showToast("Endereço vazio.")
+                                k == null -> showToast("Os 5 espaços já estão ocupados.")
+                                else -> {
+                                    Store.setNet(k, u)
+                                    showToast("Guardado.")
+                                    bump++
+                                }
+                            }
+                        }
+                        2 -> {
+                            showToast("Atualizando os canais abertos…")
+                            Aberto.load(context, force = true) { q ->
+                                showToast(if (q > 0) "$q canais abertos prontos." else Aberto.error)
+                                bump++
+                            }
+                        }
+                        3 -> {
+                            val k = (0 until 5).lastOrNull { Store.net(it).isNotBlank() }
+                            if (k == null) showToast("Não há endereço guardado.") else {
+                                Store.setNet(k, "")
+                                showToast("Removido.")
+                                bump++
+                            }
+                        }
+                        else -> {
+                            val guardados = (0 until 5).map { Store.net(it) }.filter { it.isNotBlank() }
+                            guardados.getOrNull(netSel - 4)?.let { abrirRede(it) }
+                        }
+                    }
+                }
+            }
             Z.IPTV -> {
                 val slotSaved = Store.acc(iptvSlot).first.isNotBlank()
                 val n = if (slotSaved) 6 else 5
@@ -1864,10 +1917,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             else -> {
                 BackgroundFx(tick, themeIdx)
                 if (zone != Z.INTRO) {
-                    if (zone == Z.IPTV) {
+                    if (zone == Z.IPTV || zone == Z.REDE) {
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF122034), Color(0xFF080A0F)))))
                     }
-                    if (sec.kind == "settings" && zone != Z.IPTV) {
+                    if (sec.kind == "settings" && zone != Z.IPTV && zone != Z.REDE) {
                         val cur = SETTING_ITEMS[sidx]
                         SettingsScreen(
                             sidx, editing && zone == Z.CONTENT, zone == Z.CONTENT,
@@ -1877,7 +1930,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                                 updMsg, iptvSaved, iptvTotal
                             )
                         )
-                    } else if (zone != Z.IPTV) {
+                    } else if (zone != Z.IPTV && zone != Z.REDE) {
                         ContentScreen(
                             sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health
                         )
@@ -1886,6 +1939,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     if (zone == Z.IPTV) {
                         IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot)
                     }
+                    if (zone == Z.REDE) RedeBox(netSel, bump)
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
                     if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick, false)
@@ -2355,6 +2409,9 @@ private fun settingBody(
         "Conta IPTV" ->
             (if (iptvSaved) "Conta conectada: $iptvTotal itens carregados." else "Nenhuma conta conectada.") + nl + nl +
                 "OK abre a tela para entrar, trocar ou remover a sua conta licenciada. Os dados ficam só neste aparelho."
+        "Transmissão de rede" ->
+            (if (Aberto.channels.isEmpty()) "Canais abertos: ainda não carregados." else "Canais abertos: ${Aberto.channels.size} canais, ${Aberto.quando()}.") + nl + nl +
+                "Abre qualquer endereço de vídeo ou lista (.m3u, .m3u8, rtsp), e mantém a lista pública de canais abertos como alternativa quando a sua conta falhar."
         "Atualização do app" ->
             "Versão instalada: " + Updater.currentVersion(context) + nl + nl + updMsg + nl + nl +
                 "O app confere a última versão publicada no GitHub, baixa e abre o instalador do Android."
@@ -2463,6 +2520,7 @@ private fun ExitDialog(sel: Int) {
 private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier: Modifier) {
     val t = when {
         zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
+        zone == Z.REDE -> "▲▼ escolhe · OK abre · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
         zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
         zone == Z.SOUND -> "▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva"
@@ -3083,6 +3141,48 @@ private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap
                     )
                 }
             )
+        }
+    }
+}
+
+/** Aba "Transmissão de rede" das configurações: abrir, guardar e os canais abertos. */
+@Composable
+private fun RedeBox(sel: Int, bump: Int) {
+    bump.let { }
+    val guardados = (0 until 5).map { Store.net(it) }.filter { it.isNotBlank() }
+    val linhas = ArrayList<Pair<String, String>>()
+    linhas.add("Abrir transmissão" to "endereço de vídeo, lista .m3u ou rtsp://")
+    linhas.add("Guardar endereço" to "guarda na lista (até 5) · ${guardados.size} de 5")
+    linhas.add(
+        "Canais abertos (iptv-org)" to
+            if (Aberto.loading) "baixando a lista…"
+            else if (Aberto.channels.isEmpty()) (Aberto.error.ifBlank { "ainda não carregados · OK baixa" })
+            else "${Aberto.channels.size} canais · ${Aberto.quando()} · OK atualiza",
+    )
+    linhas.add("Remover endereço" to if (guardados.isEmpty()) "nada guardado" else "apaga o último guardado")
+    for (g in guardados) linhas.add(g.removePrefix("https://").removePrefix("http://").take(52) to "OK abre")
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(u(18))
+        Column(Modifier.width(u(680)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34))) {
+            Text("Transmissão de rede", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(u(6)))
+            Text(
+                "Abre qualquer endereço de vídeo, como faz o VLC, e mantém a lista pública de canais abertos como alternativa quando a sua conta falhar.",
+                color = CDim, fontSize = ts(15),
+            )
+            Spacer(Modifier.height(u(18)))
+            linhas.forEachIndexed { i, l ->
+                val s = RoundedCornerShape(u(10))
+                Column(
+                    Modifier.fillMaxWidth().background(Color(0xFF0E121B), s)
+                        .border(BorderStroke(u(2), if (sel == i) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s)
+                        .padding(horizontal = u(16), vertical = u(10)),
+                ) {
+                    Text(l.first, color = CInk, fontSize = ts(18), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(l.second, color = CDim, fontSize = ts(13), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(u(10)))
+            }
         }
     }
 }

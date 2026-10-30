@@ -148,6 +148,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Teste de tela", null),
     SettingItem("Mapear controle remoto", null),
     SettingItem("Conta IPTV", null),
+    SettingItem("Transmissão de rede", null),
     SettingItem("Atualização do app", null),
     SettingItem("Sobre o aparelho", null)
 )
@@ -237,6 +238,13 @@ object Store {
 
     fun setSite(k: Int, name: String, url: String) {
         sp.edit().putString("web_name_$k", name).putString("web_url_$k", url).apply()
+    }
+
+    /** Transmissões de rede guardadas (até 5): só o endereço, como no "abrir fluxo" do VLC. */
+    fun net(k: Int): String = sp.getString("net_$k", "") ?: ""
+
+    fun setNet(k: Int, url: String) {
+        sp.edit().putString("net_$k", url).apply()
     }
 
     /** Primeiro espaço livre entre os 5, ou -1 se já estiverem todos ocupados. */
