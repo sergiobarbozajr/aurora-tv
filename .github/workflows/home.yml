@@ -28,7 +28,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Compilar
-        run: gradle :home:assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+        run: gradle :home:assembleRelease --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
       - name: Mostrar erros de compilacao
         if: failure()
         run: |
@@ -48,7 +48,7 @@ jobs:
             mkdir -p cap
             echo "inicio $(adb get-state)" >> cap/passos.txt
             adb shell wm size 1280x720; adb shell wm density 213; sleep 2
-            adb install -r home/build/outputs/apk/debug/home-debug.apk >> cap/passos.txt 2>&1
+            adb install -r home/build/outputs/apk/release/home-release.apk >> cap/passos.txt 2>&1
             # nao vira a tela inicial do emulador: isso derrubava o emulador no meio do teste
             adb logcat -c
             # grava o log sem parar: se o emulador morrer no meio, ainda sobra a prova do que aconteceu
@@ -147,7 +147,7 @@ jobs:
         id: ver
         run: echo "name=$(grep -m1 'versionName' home/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')" >> "$GITHUB_OUTPUT"
       - name: Separar o APK
-        run: cp home/build/outputs/apk/debug/home-debug.apk AstroLumeHome.apk
+        run: cp home/build/outputs/apk/release/home-release.apk AstroLumeHome.apk
       - uses: actions/upload-artifact@v4
         with:
           name: AstroLumeHome-apk

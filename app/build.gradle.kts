@@ -42,6 +42,8 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // mesma chave de sempre, para a TV conseguir atualizar por cima do app já instalado
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

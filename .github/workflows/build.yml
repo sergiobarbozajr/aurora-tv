@@ -31,7 +31,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Compilar o APK (debug)
-        run: gradle :app:assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+        run: gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
 
       - name: Mostrar erros de compilacao
         if: failure()
@@ -54,8 +54,8 @@ jobs:
 
       - name: Separar os dois aplicativos
         run: |
-          cp app/build/outputs/apk/tv/debug/app-tv-debug.apk AstroLumeTV.apk
-          cp app/build/outputs/apk/celular/debug/app-celular-debug.apk AstroLume-celular.apk
+          cp app/build/outputs/apk/tv/release/app-tv-release.apk AstroLumeTV.apk
+          cp app/build/outputs/apk/celular/release/app-celular-release.apk AstroLume-celular.apk
 
       - name: Publicar versao para a atualizacao dentro do app
         if: github.ref == 'refs/heads/main'

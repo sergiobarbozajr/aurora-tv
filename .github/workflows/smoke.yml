@@ -24,7 +24,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Compilar
-        run: gradle :app:assembleDebug --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+        run: gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
       - name: Mostrar erros de compilacao
         if: failure()
         run: |
@@ -40,7 +40,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
           script: |
-            adb install -r app/build/outputs/apk/tv/debug/app-tv-debug.apk
+            adb install -r app/build/outputs/apk/tv/release/app-tv-release.apk
             adb logcat -c
             adb shell monkey -p com.auroratv.tv -c android.intent.category.LAUNCHER 1
             sleep 30
@@ -58,7 +58,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot -camera-back none -memory 3072
           script: |
-            adb install -r app/build/outputs/apk/tv/debug/app-tv-debug.apk
+            adb install -r app/build/outputs/apk/tv/release/app-tv-release.apk
             adb shell am force-stop com.auroratv.tv
             adb logcat -c
             adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
@@ -88,7 +88,7 @@ jobs:
             for i in $(seq 1 10); do adb shell input keyevent KEYCODE_DPAD_UP; done
             sleep 2
             adb shell dumpsys gfxinfo com.android.settings | grep -E "Total frames|50th percentile" > ref.txt || true
-            adb install -r app/build/outputs/apk/celular/debug/app-celular-debug.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; S=$(adb shell wm size | grep -oE "[0-9]+x[0-9]+" | tail -1); W=${S%x*}; H=${S#*x}; echo "tela $W x $H"; adb shell input tap $((W*31/100)) $((H*93/100)); sleep 4; adb shell dumpsys gfxinfo com.astrolume.celular reset > /dev/null; adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*25/100)) 400; sleep 1; adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*25/100)) 400; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "Total frames|Janky|50th|95th" | sed "s/^/celular /" >> gfx.txt || true; adb logcat -d | grep -E "Choreographer.*Skipped" | tail -5 | sed "s/^/celular /" >> gfx.txt || true
+            adb install -r app/build/outputs/apk/celular/release/app-celular-release.apk; adb logcat -c; adb shell am start -n com.astrolume.celular/com.auroratv.tv.MainActivity; sleep 20; S=$(adb shell wm size | grep -oE "[0-9]+x[0-9]+" | tail -1); W=${S%x*}; H=${S#*x}; echo "tela $W x $H"; adb shell input tap $((W*31/100)) $((H*93/100)); sleep 4; adb shell dumpsys gfxinfo com.astrolume.celular reset > /dev/null; adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*25/100)) 400; sleep 1; adb shell input swipe $((W/2)) $((H*75/100)) $((W/2)) $((H*25/100)) 400; sleep 2; adb shell dumpsys gfxinfo com.astrolume.celular | grep -E "Total frames|Janky|50th|95th" | sed "s/^/celular /" >> gfx.txt || true; adb logcat -d | grep -E "Choreographer.*Skipped" | tail -5 | sed "s/^/celular /" >> gfx.txt || true
             adb logcat -d | grep -E "ANR in com.astrolume|FATAL EXCEPTION" >> travas.txt || true
             adb shell pidof com.astrolume.celular > /dev/null || echo "morto celular" >> vivo.txt
       - name: Resultado do teste
