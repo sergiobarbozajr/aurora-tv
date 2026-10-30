@@ -113,7 +113,7 @@ private val CCardHi: Color get() = ThemeState.pal.cardHi
 private val CLive = Color(0xFFFF6B81)
 private val CPanel: Color get() = ThemeState.pal.panel
 
-private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, REDE, EXIT, KEYMAP, READER, EPISODES, SOUND }
+private enum class Z { INTRO, NAV, CONTENT, PLAYER, TEST, IPTV, EXIT, KEYMAP, READER, EPISODES, SOUND }
 
 private val LocalK = compositionLocalOf { 1.5f }
 
@@ -430,11 +430,14 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     val favs = remember { mutableStateListOf<String>().apply { addAll(Store.favs()) } }
     var histVersion by remember { mutableStateOf(0) }
-    // muda quando você guarda ou remove um endereço da TV online, para a lista se redesenhar
+    // muda quando entra conteúdo novo (serviço aberto, lista de rede, canais abertos)
     var bump by remember { mutableStateOf(0) }
     // o que veio da última lista de rede aberta (estilo "abrir fluxo de rede" do VLC)
     var netRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
-    var netSel by remember { mutableStateOf(0) }
+    // conteúdo trazido de um serviço aberto (aba "Outros endereços")
+    var servicoRows by remember { mutableStateOf<Map<String, List<RowData>>>(emptyMap()) }
+    var servicoNome by remember { mutableStateOf("") }
+    var iptvTab by remember { mutableStateOf(0) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -722,8 +725,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r
             }
             "Streams" -> streamRows()
-            "Filmes" -> withLogin(iptv("Filmes") + RowData("Filmes de licença livre", free.films) + Aberto.rowsFor("Movie", "Classic", "Cinema", "Filme"))
-            "Séries" -> withLogin(iptv("Séries") + RowData("Animes ao vivo", free.anime) + Aberto.rowsFor("Series", "Anime", "Entertainment", "Novela"))
+            "Filmes" -> withLogin(iptv("Filmes") + (servicoRows["Filmes"] ?: emptyList()) + RowData("Filmes de licença livre", free.films) + Aberto.rowsFor("Movie", "Classic", "Cinema", "Filme"))
+            "Séries" -> withLogin(iptv("Séries") + (servicoRows["Séries"] ?: emptyList()) + RowData("Animes ao vivo", free.anime) + Aberto.rowsFor("Series", "Anime", "Entertainment", "Novela"))
             "Novelas" -> withLogin(iptv("Novelas"))
             "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs) + Aberto.rowsFor("Documentary", "Science", "Educ", "History"))
             "Esporte" -> withLogin(iptv("Esporte") + Aberto.rowsFor("Sport", "Outdoor"))
@@ -732,44 +735,17 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
             )
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
-            // IPTV pelo navegador: só endereços, sem usuário nem senha. Convive com a conta IPTV normal.
-            "TV online" -> {
-                val salvos = (0 until 5).mapNotNull { k ->
-                    val (nome, u) = Store.site(k)
-                    if (u.isBlank()) null
-                    else mkCard(nome.ifBlank { u.removePrefix("https://").removePrefix("http://").substringBefore('/') },
-                        "OK abre · endereço $k", "web", k + 3, u, k.toString(), emptyList(), u)
-                }
-                val livre = Store.freeSite()
-                val opcoes = ArrayList<Card>()
-                opcoes.add(mkCard("Abrir endereço", "digitar e assistir agora, sem guardar", "webopen", 9))
-                if (livre >= 0) opcoes.add(mkCard("Guardar endereço", "guarda na lista (até 5)", "webadd", 10))
-                if (salvos.isNotEmpty()) opcoes.add(mkCard("Remover endereço", "apaga um dos guardados", "webdel", 11))
-                // transmissão de rede, no espírito do VLC: endereço direto ou lista .m3u
-                val rede = ArrayList<Card>()
-                rede.add(mkCard("Abrir transmissão", "endereço de vídeo ou lista .m3u", "netopen", 2))
-                rede.add(
-                    mkCard(
-                        if (Aberto.channels.isEmpty()) "Canais abertos" else "Canais abertos (${Aberto.channels.size})",
-                        if (Aberto.loading) "baixando…" else Aberto.quando(), "netopen2", 6,
-                    )
-                )
-                listOf(
-                    RowData("Transmissão de rede", rede),
-                    RowData("Seus endereços no navegador", salvos),
-                    RowData("Opções", opcoes),
-                    RowData("Nesta lista", netRows.flatMap { it.cards }.take(60)),
-                )
-            }
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
-                RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") + Aberto.liveRows() +
+                RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") + (servicoRows["TV ao vivo"] ?: emptyList()) + netRows + Aberto.liveRows() +
                 RowData("Abertos pela internet", free.internet) + openRows + RowData("Internacionais", free.intl)
             else -> emptyList()
         }
-        return out.filter { it.cards.isNotEmpty() }
+        // o que não reproduziu nesta sessão sai das listas até a próxima vez que você abrir o app
+        return out.map { r -> if (pb.falhou.isEmpty()) r else RowData(r.title, r.cards.filter { pb.falhou[it.name] != true }) }
+            .filter { it.cards.isNotEmpty() }
     }
 
-    val rows = remember(nav, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows, searchRows, hideOff, bump) { rowsFor(nav) }
+    val rows = remember(nav, iptvVersion, favs.size, histVersion, m3uExtra, iptvSaved, iptvTotal, allCards, newsRows, searchRows, hideOff, bump, pb.falhou.size) { rowsFor(nav) }
     val sec = SECTIONS[nav]
     val base = if (sec.kind == "search") 1 else 0
 
@@ -828,7 +804,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun toggleFav(c: Card) {
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || (c.kind.startsWith("web") || c.kind.startsWith("net"))) return
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) return
         if (favs.contains(c.name)) {
             favs.remove(c.name)
             showToast("${c.name} saiu dos Favoritos")
@@ -988,8 +964,31 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r.erro.isNotEmpty() -> showToast(r.erro)
                 else -> {
                     netRows = listOf(RowData("Da lista que você abriu", Rede.cards(r.items)))
-                    showToast("${r.items.size} itens. Veja em TV online.")
+                    showToast("${r.items.size} itens entraram na TV ao vivo.")
                     bump++
+                }
+            }
+        }
+    }
+
+    /**
+     * Serviço aberto (ex.: um site de IPTV livre): tenta trazer o conteúdo para dentro do app.
+     * Se o endereço entregar uma lista no formato padrão (M3U ou Xtream), tudo entra nativo.
+     * Se não entregar, o app avisa e abre o site no navegador da TV, sem fingir que deu certo.
+     */
+    fun abrirServico(url: String) {
+        showToast("Procurando o conteúdo…")
+        Servico.abrir(url) { r ->
+            when {
+                r.rows.isNotEmpty() -> {
+                    servicoRows = r.rows
+                    servicoNome = r.nome
+                    bump++
+                    showToast("${r.total} itens de ${r.nome} entraram nas suas abas.")
+                }
+                else -> {
+                    showToast(r.erro.ifBlank { "esse endereço não entrega uma lista; abrindo no navegador" })
+                    WebActivity.open(context, url)
                 }
             }
         }
@@ -1009,43 +1008,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "quote" -> showToast(c.name + "  " + c.label)
             "app" -> launchApp(c)
             "antenna" -> openAntenna(c)
-            "web" -> WebActivity.open(context, c.url ?: "")
-            "webopen" -> askText("Endereço do site", "https://", false) { t ->
-                val u = WebActivity.fix(t)
-                if (u.isBlank()) showToast("Endereço vazio.") else WebActivity.open(context, u)
-            }
-            "webadd" -> askText("Endereço do site", "https://", false) { t ->
-                val u = WebActivity.fix(t)
-                val k = Store.freeSite()
-                when {
-                    u.isBlank() -> showToast("Endereço vazio.")
-                    k < 0 -> showToast("Os 5 espaços já estão ocupados. Remova um antes.")
-                    else -> askText("Nome para esse endereço", "", false) { n ->
-                        Store.setSite(k, n.trim(), u)
-                        showToast("Endereço guardado.")
-                        bump++
-                    }
-                }
-            }
-            // transmissão de rede: endereço direto vai para o player, lista .m3u vira uma fileira
-            "netopen" -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t -> abrirRede(t) }
-            "netopen2" -> {
-                showToast(if (Aberto.channels.isEmpty()) "Baixando os canais abertos…" else "Atualizando a lista…")
-                Aberto.load(context, force = Aberto.channels.isNotEmpty()) { n ->
-                    showToast(if (n > 0) "$n canais abertos prontos. Veja em TV ao vivo." else Aberto.error)
-                    bump++
-                }
-            }
-            "webdel" -> {
-                val k = (0 until 5).lastOrNull { Store.site(it).second.isNotBlank() }
-                if (k == null) showToast("Não há endereço guardado.")
-                else {
-                    val nome = Store.site(k).first.ifBlank { Store.site(k).second }
-                    Store.setSite(k, "", "")
-                    showToast("Removido: $nome")
-                    bump++
-                }
-            }
             "stream", "vod" -> play(c, list)
             "series" -> {
                 showToast("Carregando temporadas e episódios…")
@@ -1290,7 +1252,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val c = curCard() ?: return
         val list = rows.getOrNull(row - base)?.cards ?: emptyList()
         // estes abrem direto, sem esperar o segundo OK (que serve para favoritar)
-        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || (c.kind.startsWith("web") || c.kind.startsWith("net"))) {
+        if (c.kind == "login" || c.kind == "empty" || c.kind == "news" || c.kind == "quote" || c.kind.startsWith("web")) {
             activateCard(c, list)
             return
         }
@@ -1364,10 +1326,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         zone = Z.IPTV
                         loginField = 0
                         iptvFirst = false
-                    }
-                    "Transmissão de rede" -> {
-                        netSel = 0
-                        zone = Z.REDE
                     }
                     "Atualização do app" -> updAction()
                 }
@@ -1756,58 +1714,21 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 "ok", "right" -> testIdx = (testIdx + 1) % TEST_COLORS.size
                 "left" -> testIdx = (testIdx + TEST_COLORS.size - 1) % TEST_COLORS.size
             }
-            Z.REDE -> {
-                val n = 4 + (0 until 5).count { Store.net(it).isNotBlank() }
-                when (a) {
-                    "back", "home" -> zone = Z.CONTENT
-                    "up" -> netSel = (netSel + n - 1) % n
-                    "down" -> netSel = (netSel + 1) % n
-                    "ok" -> when (netSel) {
-                        0 -> askText("Endereço da transmissão ou da lista (.m3u)", "http://", false) { t -> abrirRede(t) }
-                        1 -> askText("Endereço para guardar", "http://", false) { t ->
-                            val u = t.trim()
-                            val k = (0 until 5).firstOrNull { Store.net(it).isBlank() }
-                            when {
-                                u.isBlank() -> showToast("Endereço vazio.")
-                                k == null -> showToast("Os 5 espaços já estão ocupados.")
-                                else -> {
-                                    Store.setNet(k, u)
-                                    showToast("Guardado.")
-                                    bump++
-                                }
-                            }
-                        }
-                        2 -> {
-                            showToast("Atualizando os canais abertos…")
-                            Aberto.load(context, force = true) { q ->
-                                showToast(if (q > 0) "$q canais abertos prontos." else Aberto.error)
-                                bump++
-                            }
-                        }
-                        3 -> {
-                            val k = (0 until 5).lastOrNull { Store.net(it).isNotBlank() }
-                            if (k == null) showToast("Não há endereço guardado.") else {
-                                Store.setNet(k, "")
-                                showToast("Removido.")
-                                bump++
-                            }
-                        }
-                        else -> {
-                            val guardados = (0 until 5).map { Store.net(it) }.filter { it.isNotBlank() }
-                            guardados.getOrNull(netSel - 4)?.let { abrirRede(it) }
-                        }
-                    }
-                }
-            }
             Z.IPTV -> {
-                val slotSaved = Store.acc(iptvSlot).first.isNotBlank()
-                val n = if (slotSaved) 6 else 5
+                // três abas no mesmo lugar: conta IPTV, transmissão de rede e outros endereços.
+                // Cada aba guarda três acessos.
+                val S = Store.SLOTS
                 fun loadSlot(k: Int) {
                     iptvSlot = k
                     val t = Store.acc(k)
                     fUrl = t.first
                     fUser = t.second
                     fPass = t.third
+                }
+                // linhas de cada aba: 0 é sempre o seletor de acesso
+                val n = when (iptvTab) {
+                    0 -> if (Store.acc(iptvSlot).first.isNotBlank()) 6 else 5
+                    else -> 3
                 }
                 when (a) {
                     "back", "home" -> {
@@ -1816,15 +1737,52 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     "up" -> loginField = (loginField + n - 1) % n
                     "down" -> loginField = (loginField + 1) % n
-                    "left" -> if (loginField == 0) loadSlot((iptvSlot + 4) % 5)
-                    "right" -> if (loginField == 0) loadSlot((iptvSlot + 1) % 5)
-                    "ok" -> when (loginField) {
-                        0 -> loadSlot((iptvSlot + 1) % 5)
-                        1 -> askText("Endereço (URL)", fUrl, false) { fUrl = it.trim() }
-                        2 -> askText("Usuário", fUser, false) { fUser = it.trim() }
-                        3 -> askText("Senha", fPass, true) { fPass = it.trim() }
-                        4 -> doLogin()
-                        else -> disconnect()
+                    "left", "right" -> {
+                        val d = if (a == "right") 1 else -1
+                        if (loginField == 0) {
+                            // na primeira linha as setas trocam de aba; a segunda linha troca de acesso
+                            iptvTab = (iptvTab + d + 3) % 3
+                            loginField = 0
+                            iptvSlot = 0
+                            if (iptvTab == 0) loadSlot(0)
+                        } else if (loginField == 1) {
+                            iptvSlot = (iptvSlot + d + S) % S
+                            if (iptvTab == 0) loadSlot(iptvSlot)
+                        }
+                    }
+                    "ok" -> when (iptvTab) {
+                        0 -> when (loginField) {
+                            0 -> {}
+                            1 -> loadSlot((iptvSlot + 1) % S)
+                            2 -> askText("Endereço (URL)", fUrl, false) { fUrl = it.trim() }
+                            3 -> askText("Usuário", fUser, false) { fUser = it.trim() }
+                            4 -> askText("Senha", fPass, true) { fPass = it.trim() }
+                            else -> if (loginField == 5) doLogin() else disconnect()
+                        }
+                        1 -> when (loginField) {
+                            0 -> {}
+                            1 -> iptvSlot = (iptvSlot + 1) % S
+                            else -> askText("Endereço da transmissão ou lista (.m3u)", Store.net(iptvSlot).ifBlank { "http://" }, false) { t ->
+                                val u = t.trim()
+                                if (u.isBlank()) showToast("Endereço vazio.") else {
+                                    Store.setNet(iptvSlot, u)
+                                    bump++
+                                    abrirRede(u)
+                                }
+                            }
+                        }
+                        else -> when (loginField) {
+                            0 -> {}
+                            1 -> iptvSlot = (iptvSlot + 1) % S
+                            else -> askText("Endereço do serviço aberto", Store.site(iptvSlot).second.ifBlank { "https://" }, false) { t ->
+                                val u = WebActivity.fix(t)
+                                if (u.isBlank()) showToast("Endereço vazio.") else {
+                                    Store.setSite(iptvSlot, "", u)
+                                    bump++
+                                    abrirServico(u)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1917,10 +1875,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             else -> {
                 BackgroundFx(tick, themeIdx)
                 if (zone != Z.INTRO) {
-                    if (zone == Z.IPTV || zone == Z.REDE) {
+                    if (zone == Z.IPTV) {
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF122034), Color(0xFF080A0F)))))
                     }
-                    if (sec.kind == "settings" && zone != Z.IPTV && zone != Z.REDE) {
+                    if (sec.kind == "settings" && zone != Z.IPTV) {
                         val cur = SETTING_ITEMS[sidx]
                         SettingsScreen(
                             sidx, editing && zone == Z.CONTENT, zone == Z.CONTENT,
@@ -1930,16 +1888,15 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                                 updMsg, iptvSaved, iptvTotal
                             )
                         )
-                    } else if (zone != Z.IPTV && zone != Z.REDE) {
+                    } else if (zone != Z.IPTV) {
                         ContentScreen(
                             sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health
                         )
                     }
                     Sidebar(nav, zone == Z.NAV)
                     if (zone == Z.IPTV) {
-                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot)
+                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot, iptvTab, servicoNome)
                     }
-                    if (zone == Z.REDE) RedeBox(netSel, bump)
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
                     if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick, false)
@@ -1986,11 +1943,26 @@ private fun Sidebar(nav: Int, focused: Boolean) {
             .clip(shape).background(ThemeState.pal.glass)
             .border(BorderStroke(u(1.2f), Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x1AFFFFFF), Color(0x0DFFFFFF)))), shape)
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = u(14), vertical = u(24))) {
-            Box(Modifier.padding(start = u(10), bottom = u(8))) { LogoSmall(fontPx) }
-            SECTIONS.forEachIndexed { i, s ->
-                if (i == SECTIONS.size - 2) Spacer(Modifier.weight(1f))
-                NavItem(s, focused && i == nav, !focused && i == nav)
+        // As abas respeitam o espaço: cabe um número inteiro delas, e a lista anda de uma em uma.
+        // Nenhuma aba aparece cortada pela metade — ou está inteira na tela, ou está oculta.
+        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = u(14), vertical = u(24))) {
+            val itemH = u(46)
+            val livre = maxHeight - u(42)
+            val cabem = max(3, (livre / itemH).toInt())
+            val inicio = when {
+                SECTIONS.size <= cabem -> 0
+                nav < cabem - 1 -> 0
+                else -> min(SECTIONS.size - cabem, nav - cabem + 2)
+            }
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.padding(start = u(10), bottom = u(8))) { LogoSmall(fontPx) }
+                for (i in inicio until min(SECTIONS.size, inicio + cabem)) {
+                    NavItem(SECTIONS[i], focused && i == nav, !focused && i == nav)
+                }
+                Spacer(Modifier.weight(1f))
+                if (inicio + cabem < SECTIONS.size) {
+                    Text("▾", color = Color(0x99AEBBD2), fontSize = ts(16), modifier = Modifier.padding(start = u(22)))
+                }
             }
         }
     }
@@ -2190,13 +2162,7 @@ private fun HeroView(c: Card?, scene: Boolean, fav: Boolean, secName: String) {
                     c.kind == "login" -> "Conecte a sua conta licenciada e os canais entram aqui."
                     c.kind == "news" || c.kind == "quote" -> c.desc.take(150)
                     scene || c.kind == "app" -> "OK abre o app (sem ele, abre a Play Store)"
-                    c.kind == "antenna" -> "OK abre a TV na entrada de antena"
-                    c.kind == "web" -> "OK abre no navegador da TV · " + c.desc.take(90)
-                    c.kind == "webopen" -> "OK pede o endereço e abre agora, sem guardar"
-                    c.kind == "webadd" -> "OK pede o endereço e o nome, e guarda na lista"
-                    c.kind == "webdel" -> "OK remove o último endereço guardado"
-                    c.kind == "netopen" -> "OK pede o endereço: vídeo direto ou lista .m3u"
-                    c.kind == "netopen2" -> "OK baixa ou atualiza a lista pública de canais abertos"
+                    c.kind == "antenna" -> "OK abre a TV na entrada de antena" + c.desc.take(90)
                     else -> "OK abre · OK duas vezes favorita"
                 },
                 color = CLight, fontSize = ts(18), maxLines = 1
@@ -2423,66 +2389,112 @@ private fun settingBody(
 }
 
 @Composable
-private fun IptvBox(url: String, user: String, pass: String, field0: Int, first: Boolean, saved: Boolean, busy: Boolean, slot: Int) {
-    val field = field0 - 1
+private fun IptvBox(
+    url: String, user: String, pass: String, field0: Int, first: Boolean, saved: Boolean,
+    busy: Boolean, slot: Int, tab: Int, servico: String,
+) {
+    val field = field0
+    val abas = listOf("Entrar com IPTV", "Transmissão de rede", "Outros endereços")
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val shape = RoundedCornerShape(u(18))
-        Column(Modifier.width(u(620)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34))) {
-            Text("Entrar com IPTV", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(u(6)))
-            Text("Use a sua conta licenciada. Os canais da sua assinatura entram na TV ao vivo, e filmes e séries nas suas abas.", color = CDim, fontSize = ts(15))
-            Spacer(Modifier.height(u(16)))
-            run {
-                val s0 = RoundedCornerShape(u(10))
-                Row(
-                    Modifier.fillMaxWidth().height(u(46)).background(Color(0xFF0E121B), s0)
-                        .border(BorderStroke(u(2), if (field0 == 0) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s0)
-                        .padding(horizontal = u(16)),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("◀", color = CAccent, fontSize = ts(18))
-                    Text("   Conta ${slot + 1} de 5" + if (saved) " · salva" else " · vazia", color = CInk, fontSize = ts(18), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("▶", color = CAccent, fontSize = ts(18))
+        Column(Modifier.width(u(660)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(30))) {
+            // linha das abas (linha 0)
+            val ts0 = RoundedCornerShape(u(10))
+            Row(
+                Modifier.fillMaxWidth().height(u(44))
+                    .then(if (field == 0) Modifier.border(BorderStroke(u(2), Color(0xFFCFE9FF)), ts0) else Modifier)
+                    .padding(u(3)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                abas.forEachIndexed { i, nome ->
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(u(8)))
+                            .background(if (i == tab) Color(0xFF1B2740) else Color(0xFF0E121B)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            nome, color = if (i == tab) CInk else CDim, fontSize = ts(14.5f),
+                            fontWeight = if (i == tab) FontWeight.ExtraBold else FontWeight.SemiBold, maxLines = 1,
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(u(14)))
-            val fields = listOf(
-                Triple("Endereço (URL)", if (url.isBlank()) "http://seu-servidor:porta" else url, url.isBlank()),
-                Triple("Usuário", if (user.isBlank()) "seu-usuario" else user, user.isBlank()),
-                Triple("Senha", if (pass.isBlank()) "••••••••" else "•".repeat(min(pass.length, 14)), pass.isBlank())
-            )
-            fields.forEachIndexed { i, f ->
-                Text(f.first, color = CDim, fontSize = ts(13))
-                Spacer(Modifier.height(u(5)))
-                val s = RoundedCornerShape(u(10))
+            Spacer(Modifier.height(u(12)))
+            // seletor de acesso (linha 1)
+            val s0 = RoundedCornerShape(u(10))
+            Row(
+                Modifier.fillMaxWidth().height(u(44)).background(Color(0xFF0E121B), s0)
+                    .border(BorderStroke(u(2), if (field == 1) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s0)
+                    .padding(horizontal = u(16)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("◀", color = CAccent, fontSize = ts(17))
+                Text(
+                    "   Acesso ${slot + 1} de ${Store.SLOTS}" + if (saved) " · salvo" else " · vazio",
+                    color = CInk, fontSize = ts(17), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                )
+                Text("▶", color = CAccent, fontSize = ts(17))
+            }
+            Spacer(Modifier.height(u(12)))
+            fun linha(titulo: String, valor: String, vazio: Boolean, idx: Int) {
+                Text(titulo, color = CDim, fontSize = ts(12.5f))
+                Spacer(Modifier.height(u(4)))
+                val sh = RoundedCornerShape(u(10))
                 Box(
-                    Modifier.fillMaxWidth().height(u(50)).background(Color(0xFF0E121B), s)
-                        .border(BorderStroke(u(2), if (field == i) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s)
+                    Modifier.fillMaxWidth().height(u(46)).background(Color(0xFF0E121B), sh)
+                        .border(BorderStroke(u(2), if (field == idx) Color(0xFFCFE9FF) else Color(0xFF262C3B)), sh)
                         .padding(horizontal = u(16)),
-                    contentAlignment = Alignment.CenterStart
-                ) { Text(f.second, color = if (f.third) CDim else CLight, fontSize = ts(18), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                Spacer(Modifier.height(u(12)))
-            }
-            val bs = RoundedCornerShape(u(10))
-            Box(
-                Modifier.fillMaxWidth().height(u(52))
-                    .background(Brush.horizontalGradient(listOf(Color(0xFFBFE4FF), CAccent)), bs)
-                    .then(if (field == 3) Modifier.border(BorderStroke(u(2), Color.White), bs) else Modifier),
-                contentAlignment = Alignment.Center
-            ) { Text(if (busy) "Entrando…" else "Entrar", color = Color(0xFF06121F), fontSize = ts(19), fontWeight = FontWeight.ExtraBold) }
-            if (saved) {
+                    contentAlignment = Alignment.CenterStart,
+                ) { Text(valor, color = if (vazio) CDim else CLight, fontSize = ts(17), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 Spacer(Modifier.height(u(10)))
-                Box(
-                    Modifier.fillMaxWidth().height(u(46)).background(CCard, bs)
-                        .then(if (field == 4) Modifier.border(BorderStroke(u(2), CLive), bs) else Modifier),
-                    contentAlignment = Alignment.Center
-                ) { Text("Remover a conta deste aparelho", color = CLight, fontSize = ts(17), fontWeight = FontWeight.Bold) }
             }
-            Spacer(Modifier.height(u(14)))
-            Text(
-                "Até 5 contas: ◀ ▶ trocam a conta. As contas salvas são juntadas nas abas. Os dados ficam só no aparelho. " + if (first) "Sem conta agora? Aperte Voltar para entrar no app." else "Voltar sai deste quadro.",
-                color = CDim, fontSize = ts(12.5f)
-            )
+            when (tab) {
+                0 -> {
+                    linha("Endereço (URL)", if (url.isBlank()) "http://seu-servidor:porta" else url, url.isBlank(), 2)
+                    linha("Usuário", if (user.isBlank()) "seu-usuario" else user, user.isBlank(), 3)
+                    linha("Senha", if (pass.isBlank()) "••••••••" else "•".repeat(min(pass.length, 14)), pass.isBlank(), 4)
+                    val bs = RoundedCornerShape(u(10))
+                    Box(
+                        Modifier.fillMaxWidth().height(u(48))
+                            .background(Brush.horizontalGradient(listOf(Color(0xFFBFE4FF), CAccent)), bs)
+                            .then(if (field == 5) Modifier.border(BorderStroke(u(2), Color.White), bs) else Modifier),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(if (busy) "Entrando…" else "Entrar", color = Color(0xFF06121F), fontSize = ts(18), fontWeight = FontWeight.ExtraBold) }
+                    if (saved) {
+                        Spacer(Modifier.height(u(8)))
+                        Box(
+                            Modifier.fillMaxWidth().height(u(42)).background(CCard, bs)
+                                .then(if (field == 6) Modifier.border(BorderStroke(u(2), CLive), bs) else Modifier),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("Remover esta conta do aparelho", color = CLight, fontSize = ts(16), fontWeight = FontWeight.Bold) }
+                    }
+                    Spacer(Modifier.height(u(10)))
+                    Text(
+                        "Sua conta licenciada. Os canais entram na TV ao vivo, e filmes e séries nas suas abas. Os dados ficam só neste aparelho.",
+                        color = CDim, fontSize = ts(12),
+                    )
+                }
+                1 -> {
+                    val v = Store.net(slot)
+                    linha("Endereço da transmissão ou lista", v.ifBlank { "http://… ou .m3u, .m3u8, rtsp://" }, v.isBlank(), 2)
+                    Spacer(Modifier.height(u(4)))
+                    Text(
+                        "Como o \"abrir fluxo de rede\" do VLC: endereço de vídeo toca na hora, lista .m3u entra na TV ao vivo. OK abre e guarda neste acesso.",
+                        color = CDim, fontSize = ts(12),
+                    )
+                }
+                else -> {
+                    val v = Store.site(slot).second
+                    linha("Endereço do serviço aberto", v.ifBlank { "https://exemplo.com" }, v.isBlank(), 2)
+                    Spacer(Modifier.height(u(4)))
+                    Text(
+                        if (servico.isNotBlank()) "Último serviço trazido: $servico. O conteúdo aparece nas suas abas, com a fonte indicada no começo da reprodução."
+                        else "O app tenta trazer o conteúdo do serviço para dentro das abas. Se o endereço não entregar uma lista, ele abre o site no navegador da TV.",
+                        color = CDim, fontSize = ts(12),
+                    )
+                }
+            }
         }
     }
 }
@@ -2520,7 +2532,6 @@ private fun ExitDialog(sel: Int) {
 private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier: Modifier) {
     val t = when {
         zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
-        zone == Z.REDE -> "▲▼ escolhe · OK abre · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
         zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
         zone == Z.SOUND -> "▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva"
@@ -2545,6 +2556,20 @@ private fun Pill(clock: String, weather: String, modifier: Modifier) {
     }
 }
 
+/** De onde veio o que está tocando, em poucas palavras. */
+private fun fonteDe(c: Card?): String {
+    if (c == null) return ""
+    val d = c.desc
+    return when {
+        d.startsWith("Fonte: ") -> d.removePrefix("Fonte: ")
+        d.startsWith("Canal aberto") -> "Canais abertos"
+        c.label == "Transmissão de rede" || d == "Transmissão de rede" -> "Transmissão de rede"
+        c.kind == "antenna" -> "Antena da TV"
+        c.kind == "stream" || c.kind == "vod" -> "Sua conta IPTV"
+        else -> ""
+    }
+}
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun PlayerScreen(
@@ -2564,6 +2589,15 @@ private fun PlayerScreen(
                 else -> "SDR"
             }
             delay(700)
+        }
+    }
+    // a fonte do conteúdo, discreta, nos primeiros 5 segundos
+    var fonte by remember { mutableStateOf("") }
+    LaunchedEffect(card?.url) {
+        fonte = fonteDe(card)
+        if (fonte.isNotEmpty()) {
+            delay(5000)
+            fonte = ""
         }
     }
     // painel de informações: aparece por 12 s e some; volta a cada tecla
@@ -2662,6 +2696,18 @@ private fun PlayerScreen(
                 color = CLight, fontSize = ts(20),
                 modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(u(12)))
                     .padding(horizontal = u(20), vertical = u(10))
+            )
+        }
+        // fonte do conteúdo: discreta, no canto, só nos primeiros 5 segundos
+        androidx.compose.animation.AnimatedVisibility(
+            visible = fonte.isNotEmpty() && !hideOsd,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = u(26), end = u(30)),
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            Text(
+                fonte, color = Color(0x8CFFFFFF), fontSize = ts(13), fontWeight = FontWeight.Medium,
+                modifier = Modifier.clip(RoundedCornerShape(u(6))).background(Color(0x4D000000)).padding(horizontal = u(10), vertical = u(4)),
             )
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -3141,48 +3187,6 @@ private fun StreamHero(c: Card, banner: androidx.compose.ui.graphics.ImageBitmap
                     )
                 }
             )
-        }
-    }
-}
-
-/** Aba "Transmissão de rede" das configurações: abrir, guardar e os canais abertos. */
-@Composable
-private fun RedeBox(sel: Int, bump: Int) {
-    bump.let { }
-    val guardados = (0 until 5).map { Store.net(it) }.filter { it.isNotBlank() }
-    val linhas = ArrayList<Pair<String, String>>()
-    linhas.add("Abrir transmissão" to "endereço de vídeo, lista .m3u ou rtsp://")
-    linhas.add("Guardar endereço" to "guarda na lista (até 5) · ${guardados.size} de 5")
-    linhas.add(
-        "Canais abertos (iptv-org)" to
-            if (Aberto.loading) "baixando a lista…"
-            else if (Aberto.channels.isEmpty()) (Aberto.error.ifBlank { "ainda não carregados · OK baixa" })
-            else "${Aberto.channels.size} canais · ${Aberto.quando()} · OK atualiza",
-    )
-    linhas.add("Remover endereço" to if (guardados.isEmpty()) "nada guardado" else "apaga o último guardado")
-    for (g in guardados) linhas.add(g.removePrefix("https://").removePrefix("http://").take(52) to "OK abre")
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val shape = RoundedCornerShape(u(18))
-        Column(Modifier.width(u(680)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(34))) {
-            Text("Transmissão de rede", color = CInk, fontSize = ts(30), fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(u(6)))
-            Text(
-                "Abre qualquer endereço de vídeo, como faz o VLC, e mantém a lista pública de canais abertos como alternativa quando a sua conta falhar.",
-                color = CDim, fontSize = ts(15),
-            )
-            Spacer(Modifier.height(u(18)))
-            linhas.forEachIndexed { i, l ->
-                val s = RoundedCornerShape(u(10))
-                Column(
-                    Modifier.fillMaxWidth().background(Color(0xFF0E121B), s)
-                        .border(BorderStroke(u(2), if (sel == i) Color(0xFFCFE9FF) else Color(0xFF262C3B)), s)
-                        .padding(horizontal = u(16), vertical = u(10)),
-                ) {
-                    Text(l.first, color = CInk, fontSize = ts(18), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(l.second, color = CDim, fontSize = ts(13), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Spacer(Modifier.height(u(10)))
-            }
         }
     }
 }

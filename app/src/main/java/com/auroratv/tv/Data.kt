@@ -35,7 +35,6 @@ val SECTIONS = listOf(
     Section("Esporte", "ball", "rows"),
     Section("Notícias", "news", "rows"),
     Section("TV ao vivo", "tv", "live"),
-    Section("TV online", "globe", "rows"),
     Section("Música", "music", "rows"),
     Section("Configurações", "gear", "settings"),
     Section("Sair do app", "power", "exit")
@@ -148,7 +147,6 @@ val SETTING_ITEMS = listOf(
     SettingItem("Teste de tela", null),
     SettingItem("Mapear controle remoto", null),
     SettingItem("Conta IPTV", null),
-    SettingItem("Transmissão de rede", null),
     SettingItem("Atualização do app", null),
     SettingItem("Sobre o aparelho", null)
 )
@@ -214,7 +212,10 @@ object Store {
         get() = sp.getString("music_name", "") ?: ""
         set(v) = sp.edit().putString("music_name", v).apply()
 
-    /** Contas de IPTV: espaço 0 usa as chaves antigas; 1 a 4 são as contas extras. */
+    /** Quantos acessos cada aba guarda. */
+    const val SLOTS = 3
+
+    /** Contas de IPTV: espaço 0 usa as chaves antigas; 1 e 2 são as contas extras. */
     fun acc(k: Int): Triple<String, String, String> =
         if (k == 0) Triple(iptvUrl, iptvUser, iptvPass)
         else Triple(sp.getString("iptv_url_$k", "") ?: "", sp.getString("iptv_user_$k", "") ?: "", sp.getString("iptv_pass_$k", "") ?: "")
@@ -227,7 +228,7 @@ object Store {
         } else sp.edit().putString("iptv_url_$k", url).putString("iptv_user_$k", user).putString("iptv_pass_$k", pass).apply()
     }
 
-    fun anyAcc(): Boolean = (0 until 5).any { acc(it).first.isNotBlank() }
+    fun anyAcc(): Boolean = (0 until SLOTS).any { acc(it).first.isNotBlank() }
 
     /**
      * TV online pelo navegador: até 5 endereços guardados, só nome e endereço.
@@ -248,7 +249,7 @@ object Store {
     }
 
     /** Primeiro espaço livre entre os 5, ou -1 se já estiverem todos ocupados. */
-    fun freeSite(): Int = (0 until 5).firstOrNull { site(it).second.isBlank() } ?: -1
+    fun freeSite(): Int = (0 until SLOTS).firstOrNull { site(it).second.isBlank() } ?: -1
 
     fun eqVal(k: String): Int = int("eq_$k", 0)
     fun setEqVal(k: String, v: Int) = putInt("eq_$k", v)

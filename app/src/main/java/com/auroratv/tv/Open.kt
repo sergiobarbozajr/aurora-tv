@@ -252,3 +252,112 @@ object Rede {
         Card(c.name, c.group, "stream", Palette.pick(i).first, Palette.pick(i).second, c.url, "", emptyList(), "Transmissão de rede", c.logo)
     }
 }
+
+/**
+ * Serviço aberto de IPTV: o usuário dá um endereço e o app tenta trazer o conteúdo para dentro.
+ *
+ * Ele tenta, em ordem, os formatos que um serviço costuma publicar: a lista M3U e a API Xtream.
+ * Se nenhum responder, não inventa nada — devolve vazio e quem chamou abre o site no navegador.
+ */
+object Servico {
+    class Res(val rows: Map<String, List<RowData>>, val nome: String, val total: Int, val erro: String)
+
+    private val main = Handler(Looper.getMainLooper())
+
+    private fun baixa(u: String, ms: Int = 25000): String? = try {
+        val c = (URL(u).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12000
+            readTimeout = ms
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "AstroLumeTV/1.0")
+        }
+        if (c.responseCode !in 200..299) null else c.inputStream.bufferedReader().use { it.readText().take(8_000_000) }
+    } catch (e: Throwable) {
+        null
+    }
+
+    /** Endereços que um serviço costuma usar para publicar a lista. */
+    private fun candidatos(base: String): List<String> {
+        val b = base.trimEnd('/')
+        return listOf(
+            b,
+            "$b/playlist.m3u",
+            "$b/playlist.m3u8",
+            "$b/lista.m3u",
+            "$b/tv.m3u",
+            "$b/channels.m3u",
+            "$b/api/playlist.m3u",
+            "$b/get.php?type=m3u_plus",
+        )
+    }
+
+    private fun nomeDe(url: String): String =
+        url.removePrefix("https://").removePrefix("http://").substringBefore('/').removePrefix("www.").substringBefore('.')
+            .replaceFirstChar { it.uppercase() }
+
+    fun abrir(url: String, onDone: (Res) -> Unit) {
+        thread(isDaemon = true) {
+            val nome = nomeDe(url)
+            var corpo: String? = null
+            for (c in candidatos(url)) {
+                val b = baixa(c) ?: continue
+                if (b.contains("#EXTINF")) {
+                    corpo = b
+                    break
+                }
+            }
+            if (corpo == null) {
+                main.post { onDone(Res(emptyMap(), nome, 0, "")) }
+                return@thread
+            }
+            // reaproveita o leitor de M3U: nome, endereço, logo e grupo
+            val itens = ArrayList<Aberto.Ch>()
+            var n = ""
+            var logo = ""
+            var grupo = ""
+            for (raw in corpo.lineSequence()) {
+                val line = raw.trim()
+                when {
+                    line.startsWith("#EXTINF") -> {
+                        val v = line.lastIndexOf(',')
+                        n = if (v >= 0) line.substring(v + 1).trim() else ""
+                        logo = at(line, "tvg-logo")
+                        grupo = at(line, "group-title").ifBlank { "Canais" }
+                    }
+                    line.startsWith("#") || line.isEmpty() -> {}
+                    else -> {
+                        if (n.isNotEmpty()) itens.add(Aberto.Ch(n, line, logo, grupo, ""))
+                        n = ""
+                    }
+                }
+            }
+            // separa por tipo, olhando o grupo e o formato do endereço
+            fun ehFilme(c: Aberto.Ch) = c.group.contains("film", true) || c.group.contains("movie", true) || c.group.contains("vod", true) || c.url.contains("/movie/")
+            fun ehSerie(c: Aberto.Ch) = c.group.contains("serie", true) || c.group.contains("series", true) || c.url.contains("/series/")
+            val filmes = itens.filter { ehFilme(it) }
+            val series = itens.filter { ehSerie(it) }
+            val canais = itens.filter { !ehFilme(it) && !ehSerie(it) }
+            fun fileiras(lista: List<Aberto.Ch>, tipo: String): List<RowData> =
+                lista.groupBy { it.group }.entries.sortedByDescending { it.value.size }.take(12).map { (g, v) ->
+                    RowData(
+                        "$g · $nome",
+                        v.take(60).mapIndexed { i, c ->
+                            Card(c.name, nome, tipo, Palette.pick(i).first, Palette.pick(i).second, c.url, "", emptyList(), "Fonte: $nome", c.logo)
+                        },
+                    )
+                }
+            val mapa = HashMap<String, List<RowData>>()
+            if (canais.isNotEmpty()) mapa["TV ao vivo"] = fileiras(canais, "stream")
+            if (filmes.isNotEmpty()) mapa["Filmes"] = fileiras(filmes, "vod")
+            if (series.isNotEmpty()) mapa["Séries"] = fileiras(series, "vod")
+            main.post { onDone(Res(mapa, nome, itens.size, "")) }
+        }
+    }
+
+    private fun at(line: String, key: String): String {
+        val i = line.indexOf("$key=\"")
+        if (i < 0) return ""
+        val j = line.indexOf('"', i + key.length + 2)
+        return if (j < 0) "" else line.substring(i + key.length + 2, j)
+    }
+}

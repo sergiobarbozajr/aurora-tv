@@ -80,6 +80,12 @@ class Playback(private val context: Context) {
     /** 1 = online, 2 = instável, 3 = offline. Chave: nome do canal. */
     val health = mutableStateMapOf<String, Int>()
 
+    /**
+     * O que não reproduziu nesta sessão. Fica oculto das listas até você abrir o app de novo —
+     * assim um canal que caiu agora não fica no caminho, mas ganha nova chance amanhã.
+     */
+    val falhou = mutableStateMapOf<String, Boolean>()
+
     /** Chamado quando o servidor recusa a sessão (401/403): o app refaz o login em silêncio. */
     var onAuthExpired: (() -> Unit)? = null
 
@@ -500,6 +506,7 @@ class Playback(private val context: Context) {
     // ---------------------------------------------------------------- saúde dos canais
 
     private fun mark(name: String, s: Int) {
+        if (s == 3) falhou[name] = true
         if (health[name] == s) return
         health[name] = s
         saveHealth()
