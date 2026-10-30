@@ -553,6 +553,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             delay(15000)
         }
     }
+    // Canais abertos: carregam sozinhos ao abrir o app, sem você precisar pedir.
+    // Se já houver cópia guardada, eles aparecem na hora; senão, entram quando a lista chegar.
+    LaunchedEffect(Unit) {
+        Aberto.load(context) { bump++ }
+    }
     LaunchedEffect(cityIdx) {
         val c = catalog.cities[cityIdx]
         weatherText = ""
@@ -680,6 +685,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     fun histCards(): List<Card> = Store.history().mapNotNull { byName[it] }
 
     fun rowsFor(i: Int): List<RowData> {
+        // basta ler o contador para a tela se redesenhar quando a lista de canais abertos chegar
+        bump.let { }
         val name = SECTIONS[i].name
         fun iptv(sec: String): List<RowData> {
             val r = iptvRows[sec] ?: emptyList()
@@ -726,7 +733,6 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
             // IPTV pelo navegador: só endereços, sem usuário nem senha. Convive com a conta IPTV normal.
             "TV online" -> {
-                bump.let { }
                 val salvos = (0 until 5).mapNotNull { k ->
                     val (nome, u) = Store.site(k)
                     if (u.isBlank()) null
