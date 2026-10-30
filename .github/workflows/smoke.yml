@@ -74,8 +74,10 @@ jobs:
             for i in $(seq 1 12); do adb shell input keyevent KEYCODE_DPAD_LEFT; done
             sleep 2
             adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames|Janky frames|50th|90th|95th|99th" > gfx.txt || true
-            # tela parada: sem ninguem mexer o app nao pode continuar desenhando (gasta GPU e esquenta a TV)
-            sleep 62
+            # Em uso: logo depois de mexer, o app nao pode ficar desenhando sozinho.
+            # (Depois de 12 s parado ele entra em stand-by e ai o fundo volta a se mexer de proposito,
+            #  entao a medida tem que caber dentro desses 12 s.)
+            sleep 1
             adb shell dumpsys gfxinfo com.auroratv.tv reset > /dev/null; sleep 8
             adb shell dumpsys gfxinfo com.auroratv.tv | grep -E "Total frames" > repouso.txt || true
             adb logcat -d | grep -E "ANR in com.auroratv|FATAL EXCEPTION|Process: com.auroratv" > travas.txt || true
@@ -119,14 +121,14 @@ jobs:
           if [ -n "$P50" ] && [ "$P50" -gt "$LIM" ]; then echo "::error title=Fluidez::mediana ${P50}ms (limite ${LIM}ms, referencia do sistema ${R50:-?}ms)"; exit 1; fi
           if [ -n "$P95" ] && [ "$P95" -gt $(( LIM * 4 )) ]; then echo "::error title=Fluidez::p95 ${P95}ms (limite $(( LIM * 4 ))ms)"; exit 1; fi
           RP=$(grep -m1 "Total frames" repouso.txt | grep -oE "[0-9]+$")
-          echo "quadros com a tela parada (8s) = $RP"
-          if [ -z "$RP" ]; then echo "::error title=Tela parada::nao deu para medir a tela parada"; exit 1; fi
-          if [ "$RP" -gt 20 ]; then echo "::error title=Tela parada::o app desenhou $RP quadros sem ninguem mexer (limite 20): alguma animacao ficou rodando sozinha"; exit 1; fi
+          echo "quadros desenhados sozinho durante o uso (8s) = $RP"
+          if [ -z "$RP" ]; then echo "::error title=Desenhando sozinho::nao deu para medir"; exit 1; fi
+          if [ "$RP" -gt 20 ]; then echo "::error title=Desenhando sozinho::o app desenhou $RP quadros durante o uso sem ninguem mexer (limite 20): alguma animacao ficou rodando sozinha"; exit 1; fi
           # celular: so conta se houve quadros desenhados na rolagem
           CF=$(grep -m1 "celular Total frames" gfx.txt | grep -oE "[0-9]+$")
           C50=$(grep -m1 "celular 50th percentile" gfx.txt | grep -oE "[0-9]+ms" | head -1 | tr -d ms)
           if [ -n "$CF" ] && [ "$CF" -gt 5 ] && [ -n "$C50" ] && [ "$C50" -gt 34 ]; then echo "::error title=Fluidez celular::mediana ${C50}ms (limite 34ms)"; exit 1; fi
-          echo "::notice title=Fluidez aprovada::mediana ${P50}ms (limite ${LIM}ms, sistema ${R50:-?}ms), p95 ${P95}ms, tela parada ${RP:-nao medido} quadros, sem travamentos · celular: ${CF:-0} quadros, mediana ${C50:-?}ms"
+          echo "::notice title=Fluidez aprovada::mediana ${P50}ms (limite ${LIM}ms, sistema ${R50:-?}ms), p95 ${P95}ms, parado durante o uso ${RP:-?} quadros, sem travamentos · celular: ${CF:-0} quadros, mediana ${C50:-?}ms"
       - name: Resumo do erro
         if: always()
         run: |
