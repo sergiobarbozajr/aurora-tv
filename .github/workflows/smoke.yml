@@ -103,14 +103,11 @@ jobs:
             adb shell pidof com.auroratv.tv > vivo.txt || echo "morto" > vivo.txt
             # referencia: as Configuracoes do Android, navegadas igual, no mesmo emulador.
             # O emulador desenha por software e e lento para tudo; so comparado da para julgar.
-            # Teste de reproducao: abre varios enderecos de video seguidos e confere se cada um tocou.
-            for U in "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" "https://test-streams.mux.dev/test_001/stream.m3u8" "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"; do
-              adb shell am force-stop com.auroratv.tv
-              adb logcat -c
-              adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "$U" > /dev/null
-              sleep 26
-              adb logcat -d -s AuroraTest:I | grep -m1 "t=12 " | sed "s/.*AuroraTest: //" | cut -c1-150 >> reproducao.txt || echo "sem resposta para $U" >> reproducao.txt
-            done
+            # Teste de reproducao: tres enderecos de video seguidos, um por linha
+            # (o executor deste passo nao aceita laco de varias linhas)
+            adb shell am force-stop com.auroratv.tv; adb logcat -c; adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" > /dev/null; sleep 26; adb logcat -d -s AuroraTest:I | grep -m1 "t=12 " | sed "s/.*AuroraTest: //" | cut -c1-140 >> reproducao.txt || echo "sem resposta" >> reproducao.txt
+            adb shell am force-stop com.auroratv.tv; adb logcat -c; adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://test-streams.mux.dev/test_001/stream.m3u8" > /dev/null; sleep 26; adb logcat -d -s AuroraTest:I | grep -m1 "t=12 " | sed "s/.*AuroraTest: //" | cut -c1-140 >> reproducao.txt || echo "sem resposta" >> reproducao.txt
+            adb shell am force-stop com.auroratv.tv; adb logcat -c; adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8" > /dev/null; sleep 26; adb logcat -d -s AuroraTest:I | grep -m1 "t=12 " | sed "s/.*AuroraTest: //" | cut -c1-140 >> reproducao.txt || echo "sem resposta" >> reproducao.txt
             adb shell am start -a android.settings.SETTINGS; sleep 8
             adb shell dumpsys gfxinfo com.android.settings reset > /dev/null
             for i in $(seq 1 10); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
