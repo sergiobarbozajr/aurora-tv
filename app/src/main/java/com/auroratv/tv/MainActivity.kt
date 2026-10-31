@@ -500,6 +500,11 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
     var bassLvl by remember { mutableStateOf(Store.bass.coerceIn(0, BASS_NAMES.size - 1)) }
     var searchRows by remember { mutableStateOf<List<RowData>>(emptyList()) }
+    // busca avançada: 0 = tudo. Ano mínimo, tipo e ordenação.
+    var fAno by remember { mutableStateOf(0) }
+    var fTipo by remember { mutableStateOf(0) }
+    var fOrdem by remember { mutableStateOf(0) }
+    var fCampo by remember { mutableStateOf(0) }
     var searchSec by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var searchIndex by remember { mutableStateOf<List<Pair<String, Card>>>(emptyList()) }
     var nextEpisode by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -650,7 +655,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         for (r in streamRows()) for (c in r.cards) sec.putIfAbsent(c.name, "Streams")
         searchSec = sec
     }
-    LaunchedEffect(query, searchIndex) {
+    LaunchedEffect(query, searchIndex, fAno, fTipo, fOrdem) {
         val q = Iptv.norm(query.trim())
         if (q.isEmpty()) {
             // sugestões separadas por tipo, com imagem
@@ -669,14 +674,33 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         }
         delay(120) // espera a próxima letra; a busca roda fora da tela
         val idx = searchIndex
+        val anoMin = fAno
+        val tipo = fTipo
+        val ordem = fOrdem
         val res = withContext(Dispatchers.Default) {
             val starts = ArrayList<Card>()
             val other = ArrayList<Card>()
-            for ((n, c) in idx) {
-                if (n.startsWith(q)) starts.add(c) else if (n.contains(q)) other.add(c)
-                if (starts.size + other.size >= 150) break
+            fun serve(c: Card): Boolean {
+                if (anoMin > 0 && c.ano in 1..(anoMin - 1)) return false
+                return when (tipo) {
+                    1 -> c.kind == "vod"
+                    2 -> c.kind == "series"
+                    3 -> c.kind == "stream" || c.kind == "antenna"
+                    else -> true
+                }
             }
-            starts + other
+            for ((n, c) in idx) {
+                if (!serve(c)) continue
+                if (n.startsWith(q)) starts.add(c) else if (n.contains(q)) other.add(c)
+                if (starts.size + other.size >= 300) break
+            }
+            val todos = starts + other
+            when (ordem) {
+                1 -> todos.sortedBy { it.name.lowercase() }
+                2 -> todos.sortedByDescending { it.ano }
+                3 -> todos.sortedByDescending { it.entrou }
+                else -> todos
+            }.take(180)
         }
         searchRows = if (res.isEmpty()) listOf(RowData("Nada encontrado para “$query”", listOf(mkCard("Tente outra palavra", "", "empty", 0))))
         else {
@@ -749,6 +773,30 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs) + Aberto.rowsFor("Documentary", "Science", "Educ", "History"))
             "Esporte" -> withLogin(iptv("Esporte") + Aberto.rowsFor("Sport", "Outdoor"))
             "Adulto" -> if (!adultoOk) emptyList() else withLogin(iptv("Adulto"))
+            "Infantil" -> withLogin(iptv("Infantil") + Aberto.rowsFor("Kids", "Family", "Animation", "Infantil"))
+            "Lançamentos" -> {
+                // o que entrou há menos tempo na lista do provedor, e o que é de ano mais recente
+                val todos = iptvRows.values.flatten().flatMap { it.cards }.filter { it.kind == "vod" || it.kind == "series" }
+                val novos = todos.filter { it.entrou > 0 }.sortedByDescending { it.entrou }.take(60)
+                val porAno = todos.filter { it.ano > 0 }.sortedByDescending { it.ano }.distinctBy { it.name }.take(60)
+                val r = ArrayList<RowData>()
+                if (novos.isNotEmpty()) r.add(RowData("Chegou agora na sua lista", novos))
+                if (porAno.isNotEmpty()) r.add(RowData("Mais recentes por ano", porAno))
+                if (r.isEmpty()) withLogin(emptyList()) else r
+            }
+            "Vistos recentemente" -> {
+                val h = histCards()
+                val r = ArrayList<RowData>()
+                if (h.isNotEmpty()) r.add(RowData("Você assistiu", h))
+                // sugestões a partir do que você vê: mesmas categorias do seu histórico
+                val gens = h.mapNotNull { it.genero.ifBlank { null } }.distinct().take(4)
+                for (g in gens) {
+                    val mesmos = iptvRows.values.flatten().flatMap { it.cards }
+                        .filter { it.genero == g && h.none { v -> v.name == it.name } }.take(24)
+                    if (mesmos.size >= 4) r.add(RowData("Porque você viu $g", mesmos))
+                }
+                if (r.isEmpty()) withLogin(emptyList()) else r
+            }
             "Música" -> musicRows(
                 openRows.filter { it.title.endsWith("Música") }.flatMap { it.cards },
                 iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
@@ -1414,10 +1462,29 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         val maxRow = rows.size - 1 + base
         if (sec.kind == "search" && row == 0) {
             when (a) {
+                // a linha da busca ganhou os filtros: ◀ ▶ passam por eles e mudam o valor
+                "right" -> {
+                    fCampo = (fCampo + 1) % 4
+                    return
+                }
+                "left" -> {
+                    if (fCampo > 0) {
+                        fCampo--
+                        return
+                    }
+                }
                 "ok" -> {
-                    kbd = true
-                    kr = 0
-                    kc = 0
+                    when (fCampo) {
+                        1 -> fTipo = (fTipo + 1) % 4
+                        2 -> fAno = when (fAno) { 0 -> 2024; 2024 -> 2020; 2020 -> 2015; 2015 -> 2010; else -> 0 }
+                        3 -> fOrdem = (fOrdem + 1) % 4
+                        else -> {
+                            kbd = true
+                            kr = 0
+                            kc = 0
+                        }
+                    }
+                    return
                 }
                 "down" -> if (rows.isNotEmpty()) {
                     row = 1
@@ -1936,7 +2003,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         )
                     } else if (zone != Z.IPTV) {
                         ContentScreen(
-                            sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health
+                            sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health,
+                            fTipo, fAno, fOrdem, fCampo
                         )
                     }
                     Sidebar(nav, zone == Z.NAV, adultoOk)
@@ -2251,7 +2319,8 @@ private fun RowsView(rows: List<RowData>, base: Int, active: Boolean, row: Int, 
 @Composable
 private fun ContentScreen(
     sec: Section, rows: List<RowData>, base: Int, active: Boolean, row: Int, col: Int, favs: List<String>,
-    query: String, kbd: Boolean, kr: Int, kc: Int, listening: Boolean, cur: Card?, health: Map<String, Int>
+    query: String, kbd: Boolean, kr: Int, kc: Int, listening: Boolean, cur: Card?, health: Map<String, Int>,
+    fTipo: Int, fAno: Int, fOrdem: Int, fCampo: Int,
 ) {
     val withHero = sec.kind != "search" && sec.kind != "lists"
     // a barra lateral ocupa até 280; o conteúdo começa logo depois, com uma folga de respiro.
@@ -2296,8 +2365,23 @@ private fun ContentScreen(
             ) {
                 NavIcon("search", CLight, u(26))
                 Spacer(Modifier.width(u(14)))
-                if (query.isEmpty() && !kbd) Text("Buscar canais, filmes, séries, novelas, documentários…", color = CDim, fontSize = ts(20), maxLines = 1)
-                else Text(query + if (kbd) "|" else "", color = Color.White, fontSize = ts(22), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                if (query.isEmpty() && !kbd) Text("Buscar canais, filmes, séries, novelas, documentários…", color = CDim, fontSize = ts(20), maxLines = 1, modifier = Modifier.weight(1f))
+                else Text(query + if (kbd) "|" else "", color = Color.White, fontSize = ts(22), fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                // filtros: ◀ ▶ andam entre eles, OK muda o valor
+                val filtros = listOf(
+                    "Tipo: " + listOf("tudo", "filmes", "séries", "canais")[fTipo],
+                    "Ano: " + if (fAno == 0) "todos" else "de $fAno",
+                    "Ordem: " + listOf("relevância", "A‑Z", "mais novo", "recém‑chegado")[fOrdem],
+                )
+                filtros.forEachIndexed { i, t ->
+                    val sel = barFoc && fCampo == i + 1
+                    val fs = RoundedCornerShape(u(8))
+                    Box(
+                        Modifier.padding(start = u(8)).clip(fs)
+                            .background(if (sel) Color(0xFFCFE9FF) else Color(0xFF151B28))
+                            .padding(horizontal = u(12), vertical = u(6)),
+                    ) { Text(t, color = if (sel) Color(0xFF06121F) else CLight, fontSize = ts(13), fontWeight = FontWeight.Bold, maxLines = 1) }
+                }
             }
             Spacer(Modifier.height(u(14)))
             if (kbd) {

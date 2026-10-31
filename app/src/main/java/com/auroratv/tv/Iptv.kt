@@ -27,6 +27,13 @@ object Iptv {
 
     private fun has(s: String, vararg k: String): Boolean = k.any { s.contains(it) }
 
+    /** Ano do conteúdo: o que o provedor mandou, ou o que está entre parênteses no nome. */
+    fun anoDe(nome: String, data: String): Int {
+        Regex("(19|20)\\d{2}").find(data)?.let { return it.value.toInt() }
+        Regex("\\((19|20)(\\d{2})\\)").find(nome)?.let { return it.value.trim('(', ')').toInt() }
+        return 0
+    }
+
     /** base = "Filmes" | "Séries" | "TV ao vivo". Devolve a seção final. */
     fun sectionFor(base: String, group: String, name: String): String {
         val g = norm(group)
@@ -34,6 +41,8 @@ object Iptv {
         return when {
             // adulto vem primeiro: nunca pode cair em outra seção por engano
             has(g, "adult", "+18", "18+", "xxx", "erotic", "erotico", "porn", "sexy", "picante") -> "Adulto"
+            has(g, "infantil", "kids", "crianca", "desenho", "cartoon", "anime kids", "baby", "disney", "nick", "discovery kids", "gloob") ||
+                has(n, "cartoon", "nickelodeon", "discovery kids", "gloob", "disney") -> "Infantil"
             has(g, "novela") || has(n, "novela") -> "Novelas"
             has(g, "document", "discovery", "nat geo", "national geographic", "history", "animal planet") -> "Documentários"
             has(g, "esport", "sport", "futebol", "nba", "ufc", "premiere", "espn", "combate") ||
@@ -302,7 +311,15 @@ object Iptv {
                     val id = o.optString("stream_id")
                     val ext = o.optString("container_extension", "mp4").ifBlank { "mp4" }
                     val sec = sectionFor("Filmes", cat, name)
-                    acc.add(sec, cat, mkCard(name, "Filme", "vod", idxOf(name), "$base/movie/${enc(user)}/${enc(pass)}/$id.$ext").copy(img = o.optString("stream_icon", "")))
+                    acc.add(
+                        sec, cat,
+                        mkCard(name, "Filme", "vod", idxOf(name), "$base/movie/${enc(user)}/${enc(pass)}/$id.$ext").copy(
+                            img = o.optString("stream_icon", ""),
+                            ano = anoDe(name, o.optString("releaseDate", "") + o.optString("release_date", "")),
+                            entrou = o.optString("added", "0").toLongOrNull() ?: 0L,
+                            genero = cat,
+                        ),
+                    )
                 }
             } catch (e: Exception) {
             }
@@ -319,7 +336,15 @@ object Iptv {
                     val cat = serCats[o.optString("category_id")] ?: ""
                     val id = o.optString("series_id")
                     val sec = sectionFor("Séries", cat, name)
-                    acc.add(sec, cat, mkCard(name, "Série", "series", idxOf(name), null, "$base|$user|$pass|$id").copy(img = o.optString("cover", "")))
+                    acc.add(
+                        sec, cat,
+                        mkCard(name, "Série", "series", idxOf(name), null, "$base|$user|$pass|$id").copy(
+                            img = o.optString("cover", ""),
+                            ano = anoDe(name, o.optString("releaseDate", "") + o.optString("release_date", "")),
+                            entrou = o.optString("last_modified", "0").toLongOrNull() ?: 0L,
+                            genero = o.optString("genre", "").ifBlank { cat },
+                        ),
+                    )
                 }
             } catch (e: Exception) {
             }

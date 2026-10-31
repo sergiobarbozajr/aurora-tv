@@ -16,7 +16,11 @@ data class Card(
     val extra: String = "",
     val pkgs: List<String> = emptyList(),
     val desc: String = "",
-    val img: String = ""
+    val img: String = "",
+    /** Dados extras para filtros e ordenação, quando o provedor manda. 0 ou vazio = não veio. */
+    val ano: Int = 0,
+    val entrou: Long = 0L,
+    val genero: String = "",
 )
 
 data class RowData(val title: String, val cards: List<Card>)
@@ -27,10 +31,13 @@ val SECTIONS = listOf(
     Section("Início", "home", "rows"),
     Section("Pesquisar", "search", "search"),
     Section("Minhas Listas", "star", "lists"),
+    Section("Vistos recentemente", "clock", "rows"),
     Section("Streams", "popcorn", "rows"),
     Section("Filmes", "film", "rows"),
+    Section("Lançamentos", "new", "rows"),
     Section("Séries", "series", "rows"),
     Section("Novelas", "heart", "rows"),
+    Section("Infantil", "kids", "rows"),
     Section("Documentários", "doc", "rows"),
     Section("Esporte", "ball", "rows"),
     Section("Notícias", "news", "rows"),
