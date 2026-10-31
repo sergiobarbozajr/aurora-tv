@@ -260,7 +260,7 @@ object Rede {
  * Se nenhum responder, não inventa nada — devolve vazio e quem chamou abre o site no navegador.
  */
 object Servico {
-    class Res(val rows: Map<String, List<RowData>>, val nome: String, val total: Int, val erro: String)
+    class Res(val rows: Map<String, List<RowData>>, val nome: String, val total: Int, val erro: String, val diag: String = "")
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -276,19 +276,70 @@ object Servico {
         null
     }
 
-    /** Endereços que um serviço costuma usar para publicar a lista. */
+    /** Endereços que um serviço costuma usar para publicar a lista, em M3U ou em JSON. */
     private fun candidatos(base: String): List<String> {
         val b = base.trimEnd('/')
         return listOf(
             b,
-            "$b/playlist.m3u",
-            "$b/playlist.m3u8",
-            "$b/lista.m3u",
-            "$b/tv.m3u",
-            "$b/channels.m3u",
-            "$b/api/playlist.m3u",
-            "$b/get.php?type=m3u_plus",
+            "$b/playlist.m3u", "$b/lista.m3u", "$b/tv.m3u", "$b/channels.m3u",
+            "$b/api/playlist.m3u", "$b/get.php?type=m3u_plus",
+            "$b/catalogo.json", "$b/catalog.json", "$b/lista.json", "$b/playlist.json",
+            "$b/canais.json", "$b/filmes.json", "$b/series.json",
+            "$b/api/catalogo", "$b/api/lista", "$b/data.json",
         )
+    }
+
+    /** Campos com nomes diferentes dependendo de quem escreveu o catálogo. */
+    private fun campo(o: org.json.JSONObject, vararg nomes: String): String {
+        for (n in nomes) {
+            val v = o.opt(n) ?: continue
+            val t = v.toString().trim()
+            if (t.isNotEmpty() && t != "null") return t
+        }
+        return ""
+    }
+
+    private fun itensDoJson(txt: String): Pair<List<Aberto.Ch>, Map<String, String>> {
+        val achados = ArrayList<Aberto.Ch>()
+        val tipos = HashMap<String, String>()
+        fun lerArray(arr: org.json.JSONArray, tipoDaChave: String) {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val url = campo(o, "url", "stream", "src", "link", "file", "playback", "m3u8", "endereco")
+                if (url.isBlank() || !(url.startsWith("http") || url.startsWith("rtsp") || url.startsWith("rtmp"))) continue
+                val nome = campo(o, "nome", "name", "title", "titulo", "canal", "label")
+                if (nome.isBlank()) continue
+                val logo = campo(o, "logo", "poster", "capa", "image", "img", "thumb", "icone", "icon")
+                val grupo = campo(o, "grupo", "group", "categoria", "category", "genero", "genre", "tipo").ifBlank { "Catálogo" }
+                achados.add(Aberto.Ch(nome, url, logo, grupo, ""))
+                tipos[nome] = tipoDaChave
+            }
+        }
+        try {
+            val t = txt.trim()
+            if (t.startsWith("[")) {
+                lerArray(org.json.JSONArray(t), "")
+            } else {
+                val o = org.json.JSONObject(t)
+                val chaves = o.keys()
+                while (chaves.hasNext()) {
+                    val k = chaves.next()
+                    val v = o.opt(k)
+                    if (v is org.json.JSONArray) {
+                        val tipo = when {
+                            k.contains("film", true) || k.contains("movie", true) || k.contains("vod", true) -> "Filmes"
+                            k.contains("serie", true) || k.contains("show", true) -> "Séries"
+                            k.contains("canal", true) || k.contains("channel", true) || k.contains("tv", true) || k.contains("live", true) -> "TV ao vivo"
+                            else -> ""
+                        }
+                        lerArray(v, tipo)
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            return Pair(emptyList(), emptyMap())
+        }
+        return Pair(achados, tipos)
     }
 
     private fun nomeDe(url: String): String =
@@ -299,19 +350,41 @@ object Servico {
         thread(isDaemon = true) {
             val nome = nomeDe(url)
             var corpo: String? = null
+            var json: Pair<List<Aberto.Ch>, Map<String, String>>? = null
+            var achou = ""
+            val tentados = ArrayList<String>()
             for (c in candidatos(url)) {
-                val b = baixa(c) ?: continue
+                val b = baixa(c)
+                if (b == null) {
+                    tentados.add(c.removePrefix(url.trimEnd('/')).ifBlank { "/" } + " sem resposta")
+                    continue
+                }
+                tentados.add(c.removePrefix(url.trimEnd('/')).ifBlank { "/" } + " respondeu " + b.length + " bytes")
                 if (b.contains("#EXTINF")) {
                     corpo = b
+                    achou = c
                     break
                 }
+                val t = b.trimStart()
+                if (t.startsWith("{") || t.startsWith("[")) {
+                    val r = itensDoJson(b)
+                    if (r.first.size >= 3) {
+                        json = r
+                        achou = c
+                        break
+                    }
+                }
             }
-            if (corpo == null) {
-                main.post { onDone(Res(emptyMap(), nome, 0, "")) }
+            if (corpo == null && json == null) {
+                val d = tentados.take(8).joinToString(" · ")
+                main.post { onDone(Res(emptyMap(), nome, 0, "", d)) }
                 return@thread
             }
             // reaproveita o leitor de M3U: nome, endereço, logo e grupo
+            val tipoPorNome = json?.second ?: emptyMap()
             val itens = ArrayList<Aberto.Ch>()
+            json?.first?.let { itens.addAll(it) }
+            if (corpo != null) {
             var n = ""
             var logo = ""
             var grupo = ""
@@ -331,9 +404,10 @@ object Servico {
                     }
                 }
             }
-            // separa por tipo, olhando o grupo e o formato do endereço
-            fun ehFilme(c: Aberto.Ch) = c.group.contains("film", true) || c.group.contains("movie", true) || c.group.contains("vod", true) || c.url.contains("/movie/")
-            fun ehSerie(c: Aberto.Ch) = c.group.contains("serie", true) || c.group.contains("series", true) || c.url.contains("/series/")
+            }
+            // separa por tipo, olhando a chave do catálogo, o grupo e o formato do endereço
+            fun ehFilme(c: Aberto.Ch) = tipoPorNome[c.name] == "Filmes" || c.group.contains("film", true) || c.group.contains("movie", true) || c.group.contains("vod", true) || c.url.contains("/movie/")
+            fun ehSerie(c: Aberto.Ch) = tipoPorNome[c.name] == "Séries" || c.group.contains("serie", true) || c.group.contains("series", true) || c.url.contains("/series/")
             val filmes = itens.filter { ehFilme(it) }
             val series = itens.filter { ehSerie(it) }
             val canais = itens.filter { !ehFilme(it) && !ehSerie(it) }
@@ -350,7 +424,7 @@ object Servico {
             if (canais.isNotEmpty()) mapa["TV ao vivo"] = fileiras(canais, "stream")
             if (filmes.isNotEmpty()) mapa["Filmes"] = fileiras(filmes, "vod")
             if (series.isNotEmpty()) mapa["Séries"] = fileiras(series, "vod")
-            main.post { onDone(Res(mapa, nome, itens.size, "")) }
+            main.post { onDone(Res(mapa, nome, itens.size, "", "lido de " + achou)) }
         }
     }
 

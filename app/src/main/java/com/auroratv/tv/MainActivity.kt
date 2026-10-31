@@ -437,6 +437,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     // conteúdo trazido de um serviço aberto (aba "Outros endereços")
     var servicoRows by remember { mutableStateOf<Map<String, List<RowData>>>(emptyMap()) }
     var servicoNome by remember { mutableStateOf("") }
+    var servicoDiag by remember { mutableStateOf("") }
     var iptvTab by remember { mutableStateOf(0) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
@@ -983,11 +984,14 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 r.rows.isNotEmpty() -> {
                     servicoRows = r.rows
                     servicoNome = r.nome
+                    servicoDiag = r.diag
                     bump++
                     showToast("${r.total} itens de ${r.nome} entraram nas suas abas.")
                 }
                 else -> {
-                    showToast(r.erro.ifBlank { "esse endereço não entrega uma lista; abrindo no navegador" })
+                    // guarda o diagnóstico para aparecer na aba, e abre no navegador como alternativa
+                    servicoDiag = r.diag
+                    showToast(r.erro.ifBlank { "esse endereço não entregou lista; veja o diagnóstico na aba" })
                     WebActivity.open(context, url)
                 }
             }
@@ -1895,7 +1899,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     }
                     Sidebar(nav, zone == Z.NAV)
                     if (zone == Z.IPTV) {
-                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot, iptvTab, servicoNome)
+                        IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot, iptvTab, servicoNome, servicoDiag)
                     }
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
@@ -2391,7 +2395,7 @@ private fun settingBody(
 @Composable
 private fun IptvBox(
     url: String, user: String, pass: String, field0: Int, first: Boolean, saved: Boolean,
-    busy: Boolean, slot: Int, tab: Int, servico: String,
+    busy: Boolean, slot: Int, tab: Int, servico: String, diag: String,
 ) {
     val field = field0
     val abas = listOf("Entrar com IPTV", "Transmissão de rede", "Outros endereços")
@@ -2491,9 +2495,13 @@ private fun IptvBox(
                     Spacer(Modifier.height(u(4)))
                     Text(
                         if (servico.isNotBlank()) "Último serviço trazido: $servico. O conteúdo aparece nas suas abas, com a fonte indicada no começo da reprodução."
-                        else "O app tenta trazer o conteúdo do serviço para dentro das abas. Se o endereço não entregar uma lista, ele abre o site no navegador da TV.",
+                        else "O app tenta trazer o conteúdo do serviço para dentro das abas, lendo lista .m3u ou catálogo em JSON. Se não encontrar, abre o site no navegador da TV.",
                         color = CDim, fontSize = ts(12),
                     )
+                    if (diag.isNotBlank()) {
+                        Spacer(Modifier.height(u(6)))
+                        Text("O que o endereço respondeu: $diag", color = Color(0xFF7E8AA6), fontSize = ts(11), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
