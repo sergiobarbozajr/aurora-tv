@@ -40,6 +40,12 @@ object Img {
 
     fun peek(key: String): ImageBitmap? = cache.get(key)
 
+    /** Esquece as capas guardadas e os endereços que falharam, para tudo ser buscado de novo. */
+    fun limpar() {
+        cache.evictAll()
+        failed.clear()
+    }
+
     private val softCache = LruCache<ImageBitmap, ImageBitmap>(24)
 
     /** Versão desfocada barata: a imagem reduzida a 48 px e ampliada de volta (sem efeito pesado na GPU). */

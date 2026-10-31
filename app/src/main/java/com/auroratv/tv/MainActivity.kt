@@ -441,6 +441,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var iptvTab by remember { mutableStateOf(0) }
     // conteúdo adulto: fica bloqueado e só libera com a senha, e volta a bloquear ao reabrir o app
     var adultoOk by remember { mutableStateOf(false) }
+    // o que está esperando confirmação: "", "remover", "credenciais"
+    var confirmar by remember { mutableStateOf("") }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -1075,6 +1077,40 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 )
             }
         }
+    }
+
+    /** Apaga tudo o que o app guardou do catálogo, sem mexer nas suas contas. */
+    fun limparCache() {
+        iptvRows = emptyMap()
+        iptvTotal = 0
+        Img.limpar()
+        Store.health = ""
+        pb.health.clear()
+        pb.falhou.clear()
+        servicoRows = emptyMap()
+        servicoNome = ""
+        netRows = emptyList()
+        iptvVersion++
+        showToast("Cache limpo. As listas serão baixadas de novo.")
+        if (iptvSaved) Iptv.loadAll { all ->
+            iptvRows = all.rows
+            iptvTotal = all.total
+            iptvVersion++
+        }
+    }
+
+    /** Apaga as credenciais dos três acessos, sem apagar favoritos nem histórico. */
+    fun limparCredenciais() {
+        for (k in 0 until Store.SLOTS) Store.setAcc(k, "", "", "")
+        fUrl = ""
+        fUser = ""
+        fPass = ""
+        iptvSaved = false
+        iptvRows = emptyMap()
+        iptvTotal = 0
+        iptvVersion++
+        loginField = 1
+        showToast("Credenciais apagadas de todos os acessos.")
     }
 
     fun disconnect() {
@@ -1742,7 +1778,15 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 "ok", "right" -> testIdx = (testIdx + 1) % TEST_COLORS.size
                 "left" -> testIdx = (testIdx + TEST_COLORS.size - 1) % TEST_COLORS.size
             }
-            Z.IPTV -> {
+            Z.IPTV -> if (confirmar.isNotEmpty()) {
+                when (a) {
+                    "back" -> confirmar = ""
+                    "ok" -> {
+                        if (confirmar == "remover") disconnect() else limparCredenciais()
+                        confirmar = ""
+                    }
+                }
+            } else {
                 // três abas no mesmo lugar: conta IPTV, transmissão de rede e outros endereços.
                 // Cada aba guarda três acessos.
                 val S = Store.SLOTS
@@ -1754,8 +1798,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     fPass = t.third
                 }
                 // linhas de cada aba: 0 é sempre o seletor de acesso
+                val temConta = Store.acc(iptvSlot).first.isNotBlank()
                 val n = when (iptvTab) {
-                    0 -> if (Store.acc(iptvSlot).first.isNotBlank()) 6 else 5
+                    0 -> if (temConta) 8 else 6
                     else -> 3
                 }
                 when (a) {
@@ -1785,7 +1830,10 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             2 -> askText("Endereço (URL)", fUrl, false) { fUrl = it.trim() }
                             3 -> askText("Usuário", fUser, false) { fUser = it.trim() }
                             4 -> askText("Senha", fPass, true) { fPass = it.trim() }
-                            else -> if (loginField == 5) doLogin() else disconnect()
+                            5 -> doLogin()
+                            6 -> limparCache()
+                            7 -> confirmar = "remover"
+                            else -> confirmar = "credenciais"
                         }
                         1 -> when (loginField) {
                             0 -> {}
@@ -1929,6 +1977,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                     if (zone == Z.IPTV) {
                         IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot, iptvTab, servicoNome, servicoDiag)
                     }
+                    if (zone == Z.IPTV && confirmar.isNotEmpty()) ConfirmBox(confirmar)
                     if (zone == Z.EXIT) ExitDialog(exitSel)
                     if (zone == Z.KEYMAP) KeymapBox(keymapStep, keymapLast)
                     if (zone == Z.SOUND) SoundBox(sndSel, soundLvl, keysLvl, eqTick, false)
@@ -2506,17 +2555,24 @@ private fun IptvBox(
                             .then(if (field == 5) Modifier.border(BorderStroke(u(2), Color.White), bs) else Modifier),
                         contentAlignment = Alignment.Center,
                     ) { Text(if (busy) "Entrando…" else "Entrar", color = Color(0xFF06121F), fontSize = ts(18), fontWeight = FontWeight.ExtraBold) }
-                    if (saved) {
-                        Spacer(Modifier.height(u(8)))
+                    Spacer(Modifier.height(u(8)))
+                    @Composable
+                    fun acao(txt: String, idx: Int, perigo: Boolean = false) {
                         Box(
-                            Modifier.fillMaxWidth().height(u(42)).background(CCard, bs)
-                                .then(if (field == 6) Modifier.border(BorderStroke(u(2), CLive), bs) else Modifier),
+                            Modifier.fillMaxWidth().height(u(40)).background(CCard, bs)
+                                .then(if (field == idx) Modifier.border(BorderStroke(u(2), if (perigo) CLive else Color(0xFFCFE9FF)), bs) else Modifier),
                             contentAlignment = Alignment.Center,
-                        ) { Text("Remover esta conta do aparelho", color = CLight, fontSize = ts(16), fontWeight = FontWeight.Bold) }
+                        ) { Text(txt, color = if (perigo) CLive else CLight, fontSize = ts(15), fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.height(u(7)))
                     }
-                    Spacer(Modifier.height(u(10)))
+                    acao("Limpar cache do catálogo", 6)
+                    if (saved) {
+                        acao("Remover esta conta do aparelho", 7, true)
+                        acao("Apagar as credenciais dos 3 acessos", 8, true)
+                    }
                     Text(
-                        "Sua conta licenciada. Os canais entram na TV ao vivo, e filmes e séries nas suas abas. Os dados ficam só neste aparelho.",
+                        "Sua conta licenciada. Os canais entram na TV ao vivo, e filmes e séries nas suas abas. " +
+                            "Limpar o cache não apaga conta nem favoritos; apagar credenciais não apaga favoritos nem histórico.",
                         color = CDim, fontSize = ts(12),
                     )
                 }
@@ -2544,6 +2600,30 @@ private fun IptvBox(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConfirmBox(oque: String) {
+    Box(Modifier.fillMaxSize().background(Color(0xCC02030A)), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(u(18))
+        Column(
+            Modifier.width(u(540)).background(CPanel, shape).border(BorderStroke(u(1), Color(0xFF262C3B)), shape).padding(u(30)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                if (oque == "remover") "Remover esta conta?" else "Apagar as credenciais dos 3 acessos?",
+                color = CInk, fontSize = ts(24), fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.height(u(10)))
+            Text(
+                if (oque == "remover") "O endereço, o usuário e a senha deste acesso saem do aparelho. Favoritos e histórico continuam."
+                else "Os três acessos ficam vazios. Favoritos, histórico e o ponto onde você parou continuam.",
+                color = CDim, fontSize = ts(15), textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(u(18)))
+            Text("OK confirma  ·  Voltar cancela", color = CLight, fontSize = ts(16), fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -2580,7 +2660,7 @@ private fun ExitDialog(sel: Int) {
 @Composable
 private fun Hint(zone: Z, sec: Section, editing: Boolean, kbd: Boolean, modifier: Modifier) {
     val t = when {
-        zone == Z.IPTV -> "▲▼ campos · OK edita · Voltar sai"
+        zone == Z.IPTV -> "◀ ▶ trocam aba e acesso · ▲▼ campos · OK edita · Voltar sai"
         zone == Z.EXIT -> "◀ ▶ escolhe · OK confirma"
         zone == Z.KEYMAP -> "aperte o botão pedido · OK cancela"
         zone == Z.SOUND -> "▲▼ escolhe · ◀ ▶ ajustam na hora · Voltar salva"
