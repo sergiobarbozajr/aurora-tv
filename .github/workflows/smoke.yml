@@ -150,6 +150,7 @@ jobs:
           if [ -n "$P50" ] && [ "$P50" -gt "$LIM" ]; then echo "::error title=Fluidez::mediana ${P50}ms (limite ${LIM}ms, referencia do sistema ${R50:-?}ms)"; exit 1; fi
           if [ -n "$P95" ] && [ "$P95" -gt $(( LIM * 4 )) ]; then echo "::error title=Fluidez::p95 ${P95}ms (limite $(( LIM * 4 ))ms)"; exit 1; fi
           # reproducao: cada linha precisa dizer que estava tocando
+          echo "::notice title=Reproducao bruta::$(wc -l < reproducao.txt 2>/dev/null || echo 0) linhas · $(tr '\n' '|' < reproducao.txt 2>/dev/null | cut -c1-800)"
           if [ -s reproducao.txt ]; then
             TOT=$(grep -c . reproducao.txt)
             OK=$(grep -c "playing=true" reproducao.txt || true)
