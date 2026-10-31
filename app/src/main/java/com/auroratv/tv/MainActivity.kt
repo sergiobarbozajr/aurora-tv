@@ -2879,13 +2879,14 @@ private fun PlayerScreen(
         }
         // fonte do conteúdo: discreta, no canto, só nos primeiros 5 segundos
         androidx.compose.animation.AnimatedVisibility(
-            visible = fonte.isNotEmpty() && !hideOsd,
+            visible = (fonte.isNotEmpty() || pb.qualidadeAviso.isNotEmpty()) && !hideOsd,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = u(26), end = u(30)),
             enter = androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.fadeOut(),
         ) {
             Text(
-                fonte, color = Color(0x8CFFFFFF), fontSize = ts(13), fontWeight = FontWeight.Medium,
+                fonte + if (pb.qualidadeAviso.isNotEmpty()) " · " + pb.qualidadeAviso else "",
+                color = Color(0x8CFFFFFF), fontSize = ts(13), fontWeight = FontWeight.Medium,
                 modifier = Modifier.clip(RoundedCornerShape(u(6))).background(Color(0x4D000000)).padding(horizontal = u(10), vertical = u(4)),
             )
         }

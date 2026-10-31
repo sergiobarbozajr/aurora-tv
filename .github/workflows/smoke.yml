@@ -103,6 +103,14 @@ jobs:
             adb shell pidof com.auroratv.tv > vivo.txt || echo "morto" > vivo.txt
             # referencia: as Configuracoes do Android, navegadas igual, no mesmo emulador.
             # O emulador desenha por software e e lento para tudo; so comparado da para julgar.
+            # Teste de reproducao: abre varios enderecos de video seguidos e confere se cada um tocou.
+            for U in "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" "https://test-streams.mux.dev/test_001/stream.m3u8" "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"; do
+              adb shell am force-stop com.auroratv.tv
+              adb logcat -c
+              adb shell am start -n com.auroratv.tv/.MainActivity --es aurora_ui tv --es aurora_test "$U" > /dev/null
+              sleep 26
+              adb logcat -d -s AuroraTest:I | grep -m1 "t=12 " | sed "s/.*AuroraTest: //" | cut -c1-150 >> reproducao.txt || echo "sem resposta para $U" >> reproducao.txt
+            done
             adb shell am start -a android.settings.SETTINGS; sleep 8
             adb shell dumpsys gfxinfo com.android.settings reset > /dev/null
             for i in $(seq 1 10); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
@@ -144,6 +152,13 @@ jobs:
           if [ -n "$R50" ] && [ -n "$RF" ] && [ "$RF" -ge 20 ]; then LIM=$(( R50 * 5 / 2 )); [ "$LIM" -lt 34 ] && LIM=34; fi
           if [ -n "$P50" ] && [ "$P50" -gt "$LIM" ]; then echo "::error title=Fluidez::mediana ${P50}ms (limite ${LIM}ms, referencia do sistema ${R50:-?}ms)"; exit 1; fi
           if [ -n "$P95" ] && [ "$P95" -gt $(( LIM * 4 )) ]; then echo "::error title=Fluidez::p95 ${P95}ms (limite $(( LIM * 4 ))ms)"; exit 1; fi
+          # reproducao: cada linha precisa dizer que estava tocando
+          if [ -s reproducao.txt ]; then
+            TOT=$(grep -c . reproducao.txt)
+            OK=$(grep -c "playing=true" reproducao.txt || true)
+            echo "::notice title=Reproducao::$OK de $TOT enderecos tocaram · $(tr '\n' '|' < reproducao.txt | cut -c1-900)"
+            if [ "$OK" -lt "$TOT" ]; then echo "::error title=Reproducao::$((TOT-OK)) de $TOT enderecos nao tocaram"; exit 1; fi
+          fi
           RP=$(grep -m1 "Total frames" repouso.txt | grep -oE "[0-9]+$")
           echo "quadros desenhados sozinho durante o uso (8s) = $RP"
           if [ -z "$RP" ]; then echo "::error title=Desenhando sozinho::nao deu para medir"; exit 1; fi

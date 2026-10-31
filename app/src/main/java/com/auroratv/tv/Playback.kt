@@ -80,6 +80,15 @@ class Playback(private val context: Context) {
     /** 1 = online, 2 = instável, 3 = offline. Chave: nome do canal. */
     val health = mutableStateMapOf<String, Int>()
 
+    /** Quantas vezes parou para carregar no último minuto, e se já reduzimos a qualidade. */
+    private var paradas = 0
+    private var paradaEm = 0L
+    private var baixou = false
+
+    /** Aviso curto para a tela quando a qualidade muda sozinha. */
+    var qualidadeAviso by mutableStateOf("")
+        internal set
+
     /**
      * O que não reproduziu nesta sessão. Fica oculto das listas até você abrir o app de novo —
      * assim um canal que caiu agora não fica no caminho, mas ganha nova chance amanhã.
@@ -143,6 +152,23 @@ class Playback(private val context: Context) {
                 bufferingSec = 0
                 card?.let { if (it.kind == "stream") mark(it.name, 1) }
             }
+            // conta as paradas para carregar: se a conexão está engasgando, baixa a qualidade sozinho
+            if (state == Player.STATE_BUFFERING && everReady) {
+                val agora = android.os.SystemClock.uptimeMillis()
+                if (agora - paradaEm > 60_000L) {
+                    paradas = 0
+                    paradaEm = agora
+                }
+                paradas++
+                if (paradas >= 3 && !baixou) {
+                    baixou = true
+                    try {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setMaxVideoSize(1280, 720).build()
+                    } catch (e: Throwable) {
+                    }
+                    qualidadeAviso = "conexão instável · qualidade reduzida"
+                }
+            }
         }
     }
 
@@ -150,6 +176,8 @@ class Playback(private val context: Context) {
         val load = DefaultLoadControl.Builder()
             // buffer equilibrado para a memória da TV: menos pausas por falta de RAM e coleta de lixo
             .setBufferDurationsMs(15000, 50000, 1500, 3000)
+            // guarda um pedaço do que já passou: voltar alguns segundos não baixa tudo de novo
+            .setBackBuffer(20000, true)
             .build()
         // se o decodificador principal da TV falhar, tenta o próximo disponível
         // Som IA entra na cadeia de áudio do player (PCM estéreo e 5.1)
@@ -166,6 +194,8 @@ class Playback(private val context: Context) {
             .setLoadControl(load)
             .build()
         p.playWhenReady = true
+        // a TV é 1080p: pedir faixa 4K só gasta banda e processamento à toa
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setMaxVideoSize(1920, 1080).build()
         // mantém Wi-Fi e processador acordados durante a reprodução (streams longos sem toque no controle)
         p.setWakeMode(C.WAKE_MODE_NETWORK)
         // áudio e legenda em português do Brasil quando o conteúdo tiver essa faixa
@@ -297,6 +327,17 @@ class Playback(private val context: Context) {
     }
 
     fun start(c: Card) {
+        // conteúdo novo: a conta de engasgos recomeça e a qualidade volta ao normal
+        paradas = 0
+        paradaEm = android.os.SystemClock.uptimeMillis()
+        if (baixou) {
+            baixou = false
+            try {
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setMaxVideoSize(1920, 1080).build()
+            } catch (e: Throwable) {
+            }
+        }
+        qualidadeAviso = ""
         val u = c.url ?: return
         card = c
         url = u
