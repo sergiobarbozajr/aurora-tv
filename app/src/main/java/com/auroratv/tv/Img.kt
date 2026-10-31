@@ -82,7 +82,8 @@ object Img {
             val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
             var s = 1
-            while (o.outWidth / (s * 2) >= 320 && o.outHeight / (s * 2) >= 180) s *= 2
+            // alvo um pouco menor que o cartão: economiza memória sem perda visível a 2 metros da TV
+            while (o.outWidth / (s * 2) >= 256 && o.outHeight / (s * 2) >= 144) s *= 2
             val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = s })
             if (bmp == null) {
                 failed.add(url)

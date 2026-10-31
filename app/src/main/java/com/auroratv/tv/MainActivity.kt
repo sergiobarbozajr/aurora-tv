@@ -146,9 +146,27 @@ class MainActivity : ComponentActivity() {
     lateinit var speech: ActivityResultLauncher<Intent>
     var onSpeech: ((String?) -> Unit)? = null
 
+    /** Quando a TV fica sem memória, as capas guardadas são a primeira coisa que o app larga. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) Img.limpar()
+    }
+
+    /** Apaga sozinho o que ficou velho na pasta temporária, para não acumular com o tempo. */
+    private fun limpezaAutomatica() {
+        try {
+            val limite = System.currentTimeMillis() - 7L * 24 * 3600_000L
+            cacheDir.listFiles()?.forEach { f ->
+                if (f.isFile && f.lastModified() < limite) f.delete()
+            }
+        } catch (e: Throwable) {
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Store.init(this)
+        Thread { limpezaAutomatica() }.start()
         Sound.init(this)
         Sound.keyType = Store.keySound.coerceIn(0, KEYS_NAMES.size - 1)
         Sound.keyVol = Store.keyVol
