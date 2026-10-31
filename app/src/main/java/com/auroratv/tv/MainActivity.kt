@@ -439,6 +439,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var servicoNome by remember { mutableStateOf("") }
     var servicoDiag by remember { mutableStateOf("") }
     var iptvTab by remember { mutableStateOf(0) }
+    // conteúdo adulto: fica bloqueado e só libera com a senha, e volta a bloquear ao reabrir o app
+    var adultoOk by remember { mutableStateOf(false) }
 
     var fUrl by remember { mutableStateOf(Store.iptvUrl) }
     var fUser by remember { mutableStateOf(Store.iptvUser) }
@@ -689,6 +691,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 
     fun histCards(): List<Card> = Store.history().mapNotNull { byName[it] }
 
+    /** A aba de adulto só existe depois que você destrava com a senha. */
+    fun secaoVisivel(i: Int): Boolean = SECTIONS[i].name != "Adulto" || adultoOk
+
     fun rowsFor(i: Int): List<RowData> {
         // basta ler o contador para a tela se redesenhar quando a lista de canais abertos chegar
         bump.let { }
@@ -731,6 +736,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             "Novelas" -> withLogin(iptv("Novelas"))
             "Documentários" -> withLogin(iptv("Documentários") + RowData("Canais abertos", free.docs) + Aberto.rowsFor("Documentary", "Science", "Educ", "History"))
             "Esporte" -> withLogin(iptv("Esporte") + Aberto.rowsFor("Sport", "Outdoor"))
+            "Adulto" -> if (!adultoOk) emptyList() else withLogin(iptv("Adulto"))
             "Música" -> musicRows(
                 openRows.filter { it.title.endsWith("Música") }.flatMap { it.cards },
                 iptv("Música").map { RowData("Da sua lista · " + it.title, it.cards) }
@@ -1331,6 +1337,24 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                         loginField = 0
                         iptvFirst = false
                     }
+                    "Conteúdo adulto" -> {
+                        if (adultoOk) {
+                            askText("Nova senha (4 dígitos)", "", true) { t ->
+                                val v = t.trim()
+                                if (v.length < 4) showToast("Use pelo menos 4 dígitos.") else {
+                                    Store.adultPin = v
+                                    showToast("Senha trocada.")
+                                }
+                            }
+                        } else {
+                            askText("Senha do conteúdo adulto", "", true) { t ->
+                                if (t.trim() == Store.adultPin) {
+                                    adultoOk = true
+                                    showToast("Liberado até você fechar o app.")
+                                } else showToast("Senha errada.")
+                            }
+                        }
+                    }
                     "Atualização do app" -> updAction()
                 }
             }
@@ -1797,12 +1821,16 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             }
             Z.NAV -> when (a) {
                 "up" -> {
-                    nav = max(0, nav - 1)
+                    var k = nav - 1
+                    while (k > 0 && !secaoVisivel(k)) k--
+                    if (k >= 0 && secaoVisivel(k)) nav = k
                     row = 0
                     col = 0
                 }
                 "down" -> {
-                    nav = min(SECTIONS.size - 1, nav + 1)
+                    var k = nav + 1
+                    while (k < SECTIONS.size - 1 && !secaoVisivel(k)) k++
+                    if (k <= SECTIONS.size - 1 && secaoVisivel(k)) nav = k
                     row = 0
                     col = 0
                 }
@@ -1889,7 +1917,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             cur.edit?.let { valueName(it) },
                             settingBody(
                                 cur, context, speedText, netTick, catalog.cities[cityIdx].name, weatherText, editing,
-                                updMsg, iptvSaved, iptvTotal
+                                updMsg, iptvSaved, iptvTotal, adultoOk
                             )
                         )
                     } else if (zone != Z.IPTV) {
@@ -1897,7 +1925,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                             sec, rows, base, zone == Z.CONTENT, row, col, favs, query, kbd, kr, kc, listening, curCard(), pb.health
                         )
                     }
-                    Sidebar(nav, zone == Z.NAV)
+                    Sidebar(nav, zone == Z.NAV, adultoOk)
                     if (zone == Z.IPTV) {
                         IptvBox(fUrl, fUser, fPass, loginField, iptvFirst, Store.acc(iptvSlot).first.isNotBlank(), iptvBusy, iptvSlot, iptvTab, servicoNome, servicoDiag)
                     }
@@ -1932,7 +1960,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
 // ---------------------------------------------------------------- telas
 
 @Composable
-private fun Sidebar(nav: Int, focused: Boolean) {
+private fun Sidebar(nav: Int, focused: Boolean, adultoOk: Boolean) {
     // menu parado, mas "sobre" o fundo: sombra por trás e borda de vidro mais clara em cima
     val shape = RoundedCornerShape(u(44))
     val k = LocalK.current
@@ -1950,21 +1978,25 @@ private fun Sidebar(nav: Int, focused: Boolean) {
         // As abas respeitam o espaço: cabe um número inteiro delas, e a lista anda de uma em uma.
         // Nenhuma aba aparece cortada pela metade — ou está inteira na tela, ou está oculta.
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = u(14), vertical = u(24))) {
+            // só as abas liberadas entram na conta do que cabe
+            val vis = SECTIONS.indices.filter { SECTIONS[it].name != "Adulto" || adultoOk }
+            val pos = vis.indexOf(nav).coerceAtLeast(0)
             val itemH = u(46)
             val livre = maxHeight - u(42)
             val cabem = max(3, (livre / itemH).toInt())
             val inicio = when {
-                SECTIONS.size <= cabem -> 0
-                nav < cabem - 1 -> 0
-                else -> min(SECTIONS.size - cabem, nav - cabem + 2)
+                vis.size <= cabem -> 0
+                pos < cabem - 1 -> 0
+                else -> min(vis.size - cabem, pos - cabem + 2)
             }
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.padding(start = u(10), bottom = u(8))) { LogoSmall(fontPx) }
-                for (i in inicio until min(SECTIONS.size, inicio + cabem)) {
+                for (p in inicio until min(vis.size, inicio + cabem)) {
+                    val i = vis[p]
                     NavItem(SECTIONS[i], focused && i == nav, !focused && i == nav)
                 }
                 Spacer(Modifier.weight(1f))
-                if (inicio + cabem < SECTIONS.size) {
+                if (inicio + cabem < vis.size) {
                     Text("▾", color = Color(0x99AEBBD2), fontSize = ts(16), modifier = Modifier.padding(start = u(22)))
                 }
             }
@@ -2207,7 +2239,9 @@ private fun ContentScreen(
     query: String, kbd: Boolean, kr: Int, kc: Int, listening: Boolean, cur: Card?, health: Map<String, Int>
 ) {
     val withHero = sec.kind != "search" && sec.kind != "lists"
-    Column(Modifier.fillMaxSize().padding(start = u(336), end = u(36), top = u(30), bottom = u(44))) {
+    // a barra lateral ocupa até 280; o conteúdo começa logo depois, com uma folga de respiro.
+    // Antes sobravam quase 60 de vazio à esquerda e margens largas nas outras bordas.
+    Column(Modifier.fillMaxSize().padding(start = u(300), end = u(22), top = u(20), bottom = u(26))) {
         if (withHero) {
             // imagens passando: sem foco num cartão com imagem, o destaque troca sozinho a cada 7 s
             val slides = remember(rows) {
@@ -2280,7 +2314,9 @@ private fun ContentScreen(
 
 @Composable
 private fun SettingsScreen(sidx: Int, editing: Boolean, focused: Boolean, value: String?, body: String) {
-    Column(Modifier.fillMaxSize().padding(start = u(336), end = u(36), top = u(30), bottom = u(44))) {
+    // a barra lateral ocupa até 280; o conteúdo começa logo depois, com uma folga de respiro.
+    // Antes sobravam quase 60 de vazio à esquerda e margens largas nas outras bordas.
+    Column(Modifier.fillMaxSize().padding(start = u(300), end = u(22), top = u(20), bottom = u(26))) {
         Text("Configurações", color = CInk, fontSize = ts(34), fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(u(18)))
         Row(Modifier.fillMaxSize()) {
@@ -2325,7 +2361,7 @@ private fun SettingsScreen(sidx: Int, editing: Boolean, focused: Boolean, value:
 
 private fun settingBody(
     item: SettingItem, context: Context, speed: String, netTick: Int, city: String, weather: String, editing: Boolean,
-    updMsg: String, iptvSaved: Boolean, iptvTotal: Int
+    updMsg: String, iptvSaved: Boolean, iptvTotal: Int, adultoOk: Boolean
 ): String {
     val nl = "\n"
     val tip = if (editing) "Editando: ◀ ▶ mudam · Voltar salva e sai." else "OK para entrar e mudar."
@@ -2379,6 +2415,10 @@ private fun settingBody(
         "Conta IPTV" ->
             (if (iptvSaved) "Conta conectada: $iptvTotal itens carregados." else "Nenhuma conta conectada.") + nl + nl +
                 "OK abre a tela para entrar, trocar ou remover a sua conta licenciada. Os dados ficam só neste aparelho."
+        "Conteúdo adulto" ->
+            (if (adultoOk) "Liberado nesta sessão." else "Bloqueado.") + nl + nl +
+                "A aba Adulto só aparece depois que você digita a senha, e volta a ficar bloqueada toda vez que o app é aberto. " +
+                "A senha começa em 0000. Com a aba liberada, OK aqui troca a senha."
         "Transmissão de rede" ->
             (if (Aberto.channels.isEmpty()) "Canais abertos: ainda não carregados." else "Canais abertos: ${Aberto.channels.size} canais, ${Aberto.quando()}.") + nl + nl +
                 "Abre qualquer endereço de vídeo ou lista (.m3u, .m3u8, rtsp), e mantém a lista pública de canais abertos como alternativa quando a sua conta falhar."

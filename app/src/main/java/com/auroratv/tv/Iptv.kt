@@ -32,6 +32,8 @@ object Iptv {
         val g = norm(group)
         val n = if (base == "TV ao vivo") norm(name) else ""
         return when {
+            // adulto vem primeiro: nunca pode cair em outra seção por engano
+            has(g, "adult", "+18", "18+", "xxx", "erotic", "erotico", "porn", "sexy", "picante") -> "Adulto"
             has(g, "novela") || has(n, "novela") -> "Novelas"
             has(g, "document", "discovery", "nat geo", "national geographic", "history", "animal planet") -> "Documentários"
             has(g, "esport", "sport", "futebol", "nba", "ufc", "premiere", "espn", "combate") ||

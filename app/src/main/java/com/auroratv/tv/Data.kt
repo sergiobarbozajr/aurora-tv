@@ -36,6 +36,7 @@ val SECTIONS = listOf(
     Section("Notícias", "news", "rows"),
     Section("TV ao vivo", "tv", "live"),
     Section("Música", "music", "rows"),
+    Section("Adulto", "lock", "rows"),
     Section("Configurações", "gear", "settings"),
     Section("Sair do app", "power", "exit")
 )
@@ -147,6 +148,7 @@ val SETTING_ITEMS = listOf(
     SettingItem("Teste de tela", null),
     SettingItem("Mapear controle remoto", null),
     SettingItem("Conta IPTV", null),
+    SettingItem("Conteúdo adulto", null),
     SettingItem("Atualização do app", null),
     SettingItem("Sobre o aparelho", null)
 )
@@ -211,6 +213,11 @@ object Store {
     var musicName: String
         get() = sp.getString("music_name", "") ?: ""
         set(v) = sp.edit().putString("music_name", v).apply()
+
+    /** Senha do conteúdo adulto. Começa em 0000 e você pode trocar nas configurações. */
+    var adultPin: String
+        get() = sp.getString("adult_pin", "0000") ?: "0000"
+        set(v) = sp.edit().putString("adult_pin", v).apply()
 
     /** Quantos acessos cada aba guarda. */
     const val SLOTS = 3
