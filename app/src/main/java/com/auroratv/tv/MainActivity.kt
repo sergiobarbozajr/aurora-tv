@@ -302,7 +302,8 @@ internal fun buildFree(catalog: Catalog, extra: List<Item>): FreeData {
             val url = item.url
             when {
                 tn.startsWith("tv ao vivo") -> {
-                    if (item.kind == "antenna") add(ant, mkCard(item.title, "Antena", "antenna", i, null, item.app ?: "", emptyList(), item.desc))
+                    // antena não vem mais de lista fixa: só entram os canais que a TV achou de verdade (ver Antena.kt)
+                    if (item.kind == "antenna") Unit
                     else if (url != null && item.source == "Internet") add(net, mkCard(item.title, "Internet", "stream", i, url, "", emptyList(), item.desc))
                     else if (url != null && item.source == "Internacional") add(intl, mkCard(item.title, "Internacional", "stream", i, url, "", emptyList(), item.desc))
                 }
@@ -441,6 +442,8 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     var iptvTab by remember { mutableStateOf(0) }
     // conteúdo adulto: fica bloqueado e só libera com a senha, e volta a bloquear ao reabrir o app
     var adultoOk by remember { mutableStateOf(false) }
+    // canais que a TV realmente achou na antena; vazio = a fileira nem aparece
+    var antena by remember { mutableStateOf<List<Card>>(emptyList()) }
     // o que está esperando confirmação: "", "remover", "credenciais"
     var confirmar by remember { mutableStateOf("") }
 
@@ -567,6 +570,13 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     LaunchedEffect(Unit) {
         Aberto.load(context) { bump++ }
     }
+    LaunchedEffect(Unit) {
+        val a = withContext(Dispatchers.Default) { Antena.cards(context) }
+        if (a.isNotEmpty()) {
+            antena = a
+            bump++
+        }
+    }
     LaunchedEffect(cityIdx) {
         val c = catalog.cities[cityIdx]
         weatherText = ""
@@ -613,7 +623,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
     val allCards = remember(free, iptvVersion, openRows) {
         val l = ArrayList<Card>()
-        l.addAll(free.antenna); l.addAll(free.internet); l.addAll(free.intl); l.addAll(free.films)
+        l.addAll(antena); l.addAll(free.internet); l.addAll(free.intl); l.addAll(free.films)
         l.addAll(free.anime); l.addAll(free.news); l.addAll(free.docs)
         streamRows().forEach { l.addAll(it.cards) }
         openRows.forEach { l.addAll(it.cards) }
@@ -631,7 +641,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         // de que aba cada título vem, para separar os resultados por tipo
         val sec = HashMap<String, String>()
         for ((name, rs) in iptvRows) for (r in rs) for (c in r.cards) sec.putIfAbsent(c.name, name)
-        for (c in free.antenna + free.internet + free.intl) sec.putIfAbsent(c.name, "TV ao vivo")
+        for (c in antena + free.internet + free.intl) sec.putIfAbsent(c.name, "TV ao vivo")
         for (r in openRows) for (c in r.cards) sec.putIfAbsent(c.name, "TV ao vivo")
         for (c in free.news) sec.putIfAbsent(c.name, "Notícias")
         for (c in free.films) sec.putIfAbsent(c.name, "Filmes")
@@ -645,7 +655,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
         if (q.isEmpty()) {
             // sugestões separadas por tipo, com imagem
             val sug = ArrayList<RowData>()
-            val ch = (free.antenna + free.internet + free.intl).filter { it.img.isNotEmpty() }.take(12)
+            val ch = (antena + free.internet + free.intl).filter { it.img.isNotEmpty() }.take(12)
             if (ch.isNotEmpty()) sug.add(RowData("Sugestões · Canais", ch))
             val iv = iptvRows["TV ao vivo"].orEmpty().flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(12)
             if (iv.isNotEmpty()) sug.add(RowData("Sugestões · TV ao vivo", iv))
@@ -653,7 +663,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
                 val l = iptvRows[secName].orEmpty().flatMap { it.cards }.filter { it.img.isNotEmpty() }.take(12)
                 if (l.isNotEmpty()) sug.add(RowData("Sugestões · $secName", l))
             }
-            if (sug.isEmpty()) sug.add(RowData("Sugestões", (free.antenna + free.intl + free.internet + free.anime).take(12)))
+            if (sug.isEmpty()) sug.add(RowData("Sugestões", (antena + free.intl + free.internet + free.anime).take(12)))
             searchRows = sug
             return@LaunchedEffect
         }
@@ -745,7 +755,7 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
             )
             "Notícias" -> withLogin(iptv("Notícias") + RowData("Ao vivo", free.news))
             "TV ao vivo" -> listOf(RowData("Sua lista IPTV", listOf(loginCard()))) +
-                RowData("Antena digital da TV", free.antenna) + iptv("TV ao vivo") + (servicoRows["TV ao vivo"] ?: emptyList()) + netRows + Aberto.liveRows() +
+                RowData("Antena digital da TV", antena) + iptv("TV ao vivo") + (servicoRows["TV ao vivo"] ?: emptyList()) + netRows + Aberto.liveRows() +
                 RowData("Abertos pela internet", free.internet) + openRows + RowData("Internacionais", free.intl)
             else -> emptyList()
         }
@@ -872,53 +882,9 @@ private fun AppBody(catalog: Catalog, activity: MainActivity) {
     }
 
     fun openAntenna(c: Card) {
-        var ok = false
-        var tuned = false
-        try {
-            val nn = Iptv.norm(c.name)
-            val cur = context.contentResolver.query(
-                TvContract.Channels.CONTENT_URI,
-                arrayOf(TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NAME), null, null, null
-            )
-            if (cur != null) {
-                cur.use {
-                    while (it.moveToNext()) {
-                        val dn = Iptv.norm(it.getString(1) ?: "")
-                        if (dn == nn || dn.startsWith(nn + " ") || dn.startsWith(nn + "-")) {
-                            val i = Intent(Intent.ACTION_VIEW, TvContract.buildChannelUri(it.getLong(0)))
-                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(i)
-                            tuned = true
-                            break
-                        }
-                    }
-                }
-            }
-        } catch (e: Throwable) {
-        }
-        if (tuned) return
-        try {
-            val tim = context.getSystemService(Context.TV_INPUT_SERVICE) as? TvInputManager
-            val tuner = tim?.tvInputList?.firstOrNull { it.type == TvInputInfo.TYPE_TUNER }
-            if (tuner != null) {
-                val i = Intent(Intent.ACTION_VIEW, TvContract.buildChannelsUriForInput(tuner.id))
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(i)
-                ok = true
-            }
-        } catch (e: Exception) {
-        }
-        if (!ok) {
-            try {
-                val i = Intent(Intent.ACTION_VIEW, TvContract.Channels.CONTENT_URI)
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(i)
-                ok = true
-            } catch (e: Exception) {
-            }
-        }
-        if (ok) showToast("Abri a antena. O Android não deixa o app trocar de canal sozinho: escolha ${c.name} no controle.")
-        else showToast("Para ver ${c.name}, aperte ENTRADAS no controle e escolha Antena.")
+        // só canais do sintonizador de antena: antes o app procurava em todas as fontes de TV
+        // do aparelho e acabava abrindo o Pluto TV, de onde não dava para voltar.
+        if (!Antena.abrir(context, c)) showToast("Não consegui abrir esse canal da antena.")
     }
 
     fun launchApp(c: Card) {
